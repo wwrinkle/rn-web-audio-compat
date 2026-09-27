@@ -3,7 +3,8 @@
 //   1. copies the new source files in native/rnaa-<version>/files/ (kernel registry, host objects), and
 //   2. applies native/rnaa-<version>/rnaa.patch (edits to existing library files).
 // Idempotent: already-applied parts are skipped, so it is safe to run from this package's postinstall AND from the
-// app's own postinstall (recommended: the app's runs last, after every package is installed, and also after an install
+// app's own postinstall. It also takes a lock: npm runs different packages' install scripts in parallel, and
+// rn-strudel's step applies this one too (found when both ran at once and one saw the other's half-applied files) (recommended: the app's runs last, after every package is installed, and also after an install
 // that replaced only react-native-audio-api). After it changes anything, rebuild the native app.
 //
 // Other libraries extend the native side by adding NEW files only (see native/README.md), via applyExtensionFiles().
@@ -64,6 +65,38 @@ function copyTree(filesDir, rnaaDir) {
   return changed;
 }
 
+// Cross-process lock (mkdir is atomic). Waits up to 2 minutes; a lock older than that is treated as stale.
+function withLock(rnaaDir, fn) {
+  const lockDir = path.join(rnaaDir, '.rn-web-audio-compat.lock');
+  const deadline = Date.now() + 120000;
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      fs.mkdirSync(lockDir);
+      break;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      let age = 0;
+      try {
+        age = Date.now() - fs.statSync(lockDir).mtimeMs;
+      } catch {
+        continue; // released between mkdir and stat
+      }
+      if (age > 120000) {
+        fs.rmSync(lockDir, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error(`${TAG} timed out waiting for ${lockDir}`);
+      Atomics.wait(pause, 0, 0, 100);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+
 function checkVersion(rnaaDir, owner) {
   const version = JSON.parse(fs.readFileSync(path.join(rnaaDir, 'package.json'), 'utf8')).version;
   if (version !== SUPPORTED_RNAA) {
@@ -75,6 +108,10 @@ function checkVersion(rnaaDir, owner) {
 }
 
 function applyCompat(rnaaDir) {
+  return withLock(rnaaDir, () => applyCompatLocked(rnaaDir));
+}
+
+function applyCompatLocked(rnaaDir) {
   checkVersion(rnaaDir, 'rn-web-audio-compat');
   const nativeDir = path.resolve(__dirname, '..', 'native', `rnaa-${SUPPORTED_RNAA}`);
   const copied = copyTree(path.join(nativeDir, 'files'), rnaaDir);
@@ -102,10 +139,12 @@ function applyExtensionFiles(owner, filesDir, rnaaDirArg) {
     console.warn(`[${owner}] react-native-audio-api not found; skipping native setup.`);
     return null;
   }
-  const compat = applyCompat(rnaaDir);
-  checkVersion(rnaaDir, owner);
-  const copied = copyTree(filesDir, rnaaDir);
-  return { rnaaDir, compat, copied };
+  return withLock(rnaaDir, () => {
+    const compat = applyCompatLocked(rnaaDir);
+    checkVersion(rnaaDir, owner);
+    const copied = copyTree(filesDir, rnaaDir);
+    return { rnaaDir, compat, copied };
+  });
 }
 
 function main() {
