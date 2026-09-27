@@ -1,0 +1,583 @@
+diff --git a/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp b/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
+index 76c51aa..ac863d5 100644
+--- a/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
++++ b/android/src/main/cpp/audioapi/android/core/AudioPlayer.cpp
+@@ -49,6 +49,9 @@ bool AudioPlayer::openAudioStream() {
+     return false;
+   }
+ 
++  // rn-web-audio-compat patch: the default Oboe buffer (~2 bursts) has no headroom for JS worklet callbacks; use the maximum.
++  mStream_->setBufferSizeInFrames(mStream_->getBufferCapacityInFrames());
++
+   buffer_ = std::make_shared<DSPAudioBuffer>(RENDER_QUANTUM_SIZE, channelCount_, sampleRate_);
+   isInitialized_.store(true, std::memory_order_release);
+   return true;
+@@ -114,6 +117,7 @@ AudioPlayer::onAudioReady(AudioStream *oboeStream, void *audioData, int32_t numF
+ 
+   const CurrentRenderScope renderScope(currentRenders_);
+ 
++
+   auto *buffer = static_cast<float *>(audioData);
+   int processedFrames = 0;
+ 
+diff --git a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
+index c7fd697..b50e2f1 100644
+--- a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
++++ b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
+@@ -24,6 +24,7 @@
+ #include <audioapi/HostObjects/utils/NodeOptionsParser.h>
+ #include <audioapi/core/BaseAudioContext.h>
+ #include <audioapi/core/utils/AudioDecoding.h>
++#include <audioapi/dsp/rnwac/Kernels.h>
+ 
+ #include <memory>
+ #include <vector>
+@@ -65,7 +66,9 @@ BaseAudioContextHostObject::BaseAudioContextHostObject(
+       JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, createPeriodicWave),
+       JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, createConvolver),
+       JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, createAnalyser),
+-      JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, createWaveShaper));
++      JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, createWaveShaper),
++      JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, getKernelTimings),
++      JSI_EXPORT_FUNCTION(BaseAudioContextHostObject, resetKernelTimings));
+ }
+ 
+ // Explicitly define destructors here, as they to exist in order to act as a
+@@ -97,7 +100,7 @@ JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, createWorkletSourceNode) {
+       worklets::extractSerializableOrThrow<worklets::SerializableWorklet>(runtime, args[0]);
+   std::weak_ptr<worklets::WorkletRuntime> workletRuntime;
+   auto shouldUseUiRuntime = args[1].getBool();
+-  auto shouldLockRuntime = shouldUseUiRuntime;
++  auto shouldLockRuntime = true; // rn-web-audio-compat patch: AudioRuntime jobs raced with JS-thread node creation (Hermes SIGSEGV)
+   if (shouldUseUiRuntime) {
+     workletRuntime = context_->getRuntimeRegistry().uiRuntime;
+   } else {
+@@ -120,7 +123,7 @@ JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, createWorkletNode) {
+ 
+   std::weak_ptr<worklets::WorkletRuntime> workletRuntime;
+   auto shouldUseUiRuntime = args[1].getBool();
+-  auto shouldLockRuntime = shouldUseUiRuntime;
++  auto shouldLockRuntime = true; // rn-web-audio-compat patch: AudioRuntime jobs raced with JS-thread node creation (Hermes SIGSEGV)
+   if (shouldUseUiRuntime) {
+     workletRuntime = context_->getRuntimeRegistry().uiRuntime;
+   } else {
+@@ -148,7 +151,7 @@ JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, createWorkletProcessingNode)
+ 
+   std::weak_ptr<worklets::WorkletRuntime> workletRuntime;
+   auto shouldUseUiRuntime = args[1].getBool();
+-  auto shouldLockRuntime = shouldUseUiRuntime;
++  auto shouldLockRuntime = true; // rn-web-audio-compat patch: AudioRuntime jobs raced with JS-thread node creation (Hermes SIGSEGV)
+   if (shouldUseUiRuntime) {
+     workletRuntime = context_->getRuntimeRegistry().uiRuntime;
+   } else {
+@@ -332,4 +335,75 @@ JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, createWaveShaper) {
+       std::make_shared<WaveShaperNodeHostObject>(context_, waveShaperOptions);
+   return jsi::Object::createFromHostObject(runtime, waveShaperHostObject);
+ }
++
++// rn-web-audio-compat patch: array of {id, name, count, avgUs, maxUs} for every kernel id that has run at least once since
++// the last resetKernelTimings() call (or process start). Used by src/audio/benchmark.ts's native kernel benchmark.
++JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, getKernelTimings) {
++  std::vector<jsi::Value> entries;
++  {
++    // Entry id 0: the whole render callback (rnwac::RenderTiming), not a kernel.
++    auto &render = rnwac::g_renderTiming;
++    uint64_t count = render.count.load(std::memory_order_relaxed);
++    uint64_t totalNs = render.totalNs.load(std::memory_order_relaxed);
++    uint64_t frames = render.frames.load(std::memory_order_relaxed);
++    double sampleRate = context_->getSampleRate();
++    auto entry = jsi::Object(runtime);
++    entry.setProperty(runtime, "id", jsi::Value(0));
++    entry.setProperty(runtime, "name", jsi::String::createFromUtf8(runtime, "render (whole graph)"));
++    entry.setProperty(runtime, "count", jsi::Value(static_cast<double>(count)));
++    entry.setProperty(
++        runtime,
++        "avgUs",
++        jsi::Value(count > 0 ? (static_cast<double>(totalNs) / static_cast<double>(count)) / 1000.0 : 0.0));
++    entry.setProperty(
++        runtime, "maxUs", jsi::Value(static_cast<double>(render.maxNs.load(std::memory_order_relaxed)) / 1000.0));
++    entry.setProperty(runtime, "frames", jsi::Value(static_cast<double>(frames)));
++    entry.setProperty(
++        runtime,
++        "loadPct",
++        jsi::Value(
++            frames > 0 ? static_cast<double>(totalNs) / (static_cast<double>(frames) / sampleRate * 1e9) * 100.0 : 0.0));
++    entry.setProperty(
++        runtime,
++        "maxLoadPct",
++        jsi::Value(static_cast<double>(render.maxLoadPermille.load(std::memory_order_relaxed)) / 10.0));
++    entry.setProperty(
++        runtime, "overBudget", jsi::Value(static_cast<double>(render.overBudget.load(std::memory_order_relaxed))));
++    entries.emplace_back(std::move(entry));
++  }
++  // One entry per REGISTERED kernel (so JS can also check which native kernels exist).
++  for (int id = 1; id < rnwac::kMaxKernelIds; ++id) {
++    const char *name = rnwac::kernelName(id);
++    if (name == nullptr) {
++      continue;
++    }
++    auto &timing = rnwac::g_kernelTiming[id];
++    uint64_t count = timing.count.load(std::memory_order_relaxed);
++    uint64_t totalNs = timing.totalNs.load(std::memory_order_relaxed);
++    uint64_t maxNs = timing.maxNs.load(std::memory_order_relaxed);
++
++    auto entry = jsi::Object(runtime);
++    entry.setProperty(runtime, "id", jsi::Value(id));
++    entry.setProperty(
++        runtime, "name", jsi::String::createFromUtf8(runtime, name));
++    entry.setProperty(runtime, "count", jsi::Value(static_cast<double>(count)));
++    entry.setProperty(
++        runtime,
++        "avgUs",
++        jsi::Value(count > 0 ? (static_cast<double>(totalNs) / static_cast<double>(count)) / 1000.0 : 0.0));
++    entry.setProperty(runtime, "maxUs", jsi::Value(static_cast<double>(maxNs) / 1000.0));
++    entries.emplace_back(std::move(entry));
++  }
++
++  auto result = jsi::Array(runtime, entries.size());
++  for (size_t i = 0; i < entries.size(); ++i) {
++    result.setValueAtIndex(runtime, i, entries[i]);
++  }
++  return result;
++}
++
++JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, resetKernelTimings) {
++  rnwac::resetKernelTiming();
++  return jsi::Value::undefined();
++}
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.h b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.h
+index 4041f8f..674ce02 100644
+--- a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.h
++++ b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.h
+@@ -46,6 +46,10 @@ class BaseAudioContextHostObject : public JsiHostObject {
+   JSI_HOST_FUNCTION_DECL(createConvolver);
+   JSI_HOST_FUNCTION_DECL(createWaveShaper);
+   JSI_HOST_FUNCTION_DECL(createDelay);
++  // rn-web-audio-compat patch: on-device cost readback for the C++ effect kernels (see dsp/rnwac/Kernels.h). Global across
++  // the process, not per-context, since kernel timing is tracked per kernel id, not per node.
++  JSI_HOST_FUNCTION_DECL(getKernelTimings);
++  JSI_HOST_FUNCTION_DECL(resetKernelTimings);
+ 
+  protected:
+   std::shared_ptr<BaseAudioContext> context_;
+diff --git a/common/cpp/audioapi/HostObjects/effects/WorkletProcessingNodeHostObject.h b/common/cpp/audioapi/HostObjects/effects/WorkletProcessingNodeHostObject.h
+index 0c17b3c..b6ec328 100644
+--- a/common/cpp/audioapi/HostObjects/effects/WorkletProcessingNodeHostObject.h
++++ b/common/cpp/audioapi/HostObjects/effects/WorkletProcessingNodeHostObject.h
+@@ -10,7 +10,10 @@ using namespace facebook;
+ 
+ class WorkletProcessingNodeHostObject : public AudioNodeHostObject {
+  public:
+-  explicit WorkletProcessingNodeHostObject(const std::shared_ptr<WorkletProcessingNode> &node)
+-      : AudioNodeHostObject(node) {}
++  explicit WorkletProcessingNodeHostObject(const std::shared_ptr<WorkletProcessingNode> &node);
++
++  // rn-web-audio-compat patch: switch this node from running a JS worklet to running a named C++ kernel.
++  JSI_HOST_FUNCTION_DECL(setKernel);
++  JSI_HOST_FUNCTION_DECL(setKernelParam);
+ };
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/HostObjects/sources/WorkletSourceNodeHostObject.h b/common/cpp/audioapi/HostObjects/sources/WorkletSourceNodeHostObject.h
+index 648b533..c4f3c4a 100644
+--- a/common/cpp/audioapi/HostObjects/sources/WorkletSourceNodeHostObject.h
++++ b/common/cpp/audioapi/HostObjects/sources/WorkletSourceNodeHostObject.h
+@@ -10,7 +10,10 @@ using namespace facebook;
+ 
+ class WorkletSourceNodeHostObject : public AudioScheduledSourceNodeHostObject {
+  public:
+-  explicit WorkletSourceNodeHostObject(const std::shared_ptr<WorkletSourceNode> &node)
+-      : AudioScheduledSourceNodeHostObject(node) {}
++  explicit WorkletSourceNodeHostObject(const std::shared_ptr<WorkletSourceNode> &node);
++
++  // rn-web-audio-compat patch: switch this node from running a JS worklet to running a named C++ kernel.
++  JSI_HOST_FUNCTION_DECL(setKernel);
++  JSI_HOST_FUNCTION_DECL(setKernelParam);
+ };
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/core/AudioNode.cpp b/common/cpp/audioapi/core/AudioNode.cpp
+index 45dafd6..66a943f 100644
+--- a/common/cpp/audioapi/core/AudioNode.cpp
++++ b/common/cpp/audioapi/core/AudioNode.cpp
+@@ -302,6 +302,14 @@ void AudioNode::cleanup() {
+   }
+ 
+   outputNodes_.clear();
++
++  // rn-web-audio-compat patch: AudioParam::inputNodes_ holds raw AudioNode* pointers;
++  // without this a freed modulator node stays in its target param's list and
++  // the render thread dereferences it (SIGSEGV in AudioParam::processInputs).
++  for (const auto &param : outputParams_) {
++    param->removeInputNode(this);
++  }
++  outputParams_.clear();
+ }
+ 
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/core/destinations/AudioDestinationNode.cpp b/common/cpp/audioapi/core/destinations/AudioDestinationNode.cpp
+index e7fcd1d..2533101 100644
+--- a/common/cpp/audioapi/core/destinations/AudioDestinationNode.cpp
++++ b/common/cpp/audioapi/core/destinations/AudioDestinationNode.cpp
+@@ -2,8 +2,10 @@
+ #include <audioapi/core/BaseAudioContext.h>
+ #include <audioapi/core/destinations/AudioDestinationNode.h>
+ #include <audioapi/core/utils/AudioGraphManager.h>
++#include <audioapi/dsp/rnwac/Kernels.h>
+ #include <audioapi/types/NodeOptions.h>
+ 
++#include <chrono>
+ #include <memory>
+ 
+ namespace audioapi {
+@@ -28,7 +30,12 @@ void AudioDestinationNode::renderAudio(
+     return;
+   }
+ 
++  // rn-web-audio-compat patch: time the whole render callback (see rnwac::RenderTiming).
++  auto renderStart = std::chrono::steady_clock::now();
++  float renderSampleRate = 0;
++
+   if (std::shared_ptr<BaseAudioContext> context = context_.lock()) {
++    renderSampleRate = context->getSampleRate();
+     context->processAudioEvents();
+     context->getGraphManager()->preProcessGraph();
+   }
+@@ -44,6 +51,11 @@ void AudioDestinationNode::renderAudio(
+   destinationBuffer->normalize();
+ 
+   currentSampleFrame_.fetch_add(numFrames, std::memory_order_release);
++
++  rnwac::recordRenderTiming(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - renderStart).count(),
++      numFrames,
++      renderSampleRate);
+ }
+ 
+ } // namespace audioapi
+diff --git a/common/cpp/audioapi/core/effects/ConvolverNode.cpp b/common/cpp/audioapi/core/effects/ConvolverNode.cpp
+index fa65999..e5efb89 100644
+--- a/common/cpp/audioapi/core/effects/ConvolverNode.cpp
++++ b/common/cpp/audioapi/core/effects/ConvolverNode.cpp
+@@ -83,6 +83,10 @@ float ConvolverNode::calculateNormalizationScale(const std::shared_ptr<AudioBuff
+ void ConvolverNode::onInputDisabled() {
+   numberOfEnabledInputNodes_ -= 1;
+   if (isEnabled() && numberOfEnabledInputNodes_ == 0) {
++    // rn-web-audio-compat patch: convolvers_ is empty until a buffer is set; .at(0) threw std::out_of_range on the render thread.
++    if (convolvers_.empty()) {
++      return;
++    }
+     signalledToStop_ = true;
+     remainingSegments_ = convolvers_.at(0)->getSegCount();
+   }
+diff --git a/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp b/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp
+index 9faec92..25167df 100644
+--- a/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp
++++ b/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp
+@@ -1,6 +1,7 @@
+ #include <audioapi/core/effects/WorkletProcessingNode.h>
+ #include <audioapi/core/utils/Constants.h>
+ #include <algorithm>
++#include <chrono>
+ #include <memory>
+ #include <utility>
+ 
+@@ -30,6 +31,41 @@ std::shared_ptr<DSPAudioBuffer> WorkletProcessingNode::processNode(
+       static_cast<size_t>(2), // Fixed to stereo for now
+       processingBuffer->getNumberOfChannels());
+ 
++  if (kernelId_ != 0) {
++    // rn-web-audio-compat patch: native kernel path. Reads the (possibly aliased) input buffer, writes into this node's OWN
++    // buffer and returns that, so fan-out consumers of the input are never mutated.
++    const float *inPtrs[rnwac::kMaxChannels] = {};
++    float *outPtrs[rnwac::kMaxChannels] = {};
++    size_t outChannels = std::min(channelCount, audioBuffer_->getNumberOfChannels());
++    for (size_t ch = 0; ch < outChannels; ++ch) {
++      inPtrs[ch] = processingBuffer->getChannel(ch)->begin();
++      outPtrs[ch] = audioBuffer_->getChannel(ch)->begin();
++    }
++    double kernelTime = 0.0;
++    if (std::shared_ptr<BaseAudioContext> ctx = context_.lock()) {
++      kernelTime = ctx->getCurrentTime();
++    }
++    auto kernelStart = std::chrono::steady_clock::now();
++    rnwac::runKernel(
++        kernelId_,
++        inPtrs,
++        outPtrs,
++        static_cast<int>(outChannels),
++        framesToProcess,
++        kernelParams_,
++        kernelState_,
++        audioBuffer_->getSampleRate(),
++        kernelTime);
++    rnwac::recordKernelTiming(
++        kernelId_,
++        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - kernelStart).count());
++    // Mono input into a stereo node: duplicate so both channels carry signal.
++    if (outChannels == 1 && audioBuffer_->getNumberOfChannels() > 1) {
++      audioBuffer_->getChannel(1)->copy(*audioBuffer_->getChannel(0), 0, 0, framesToProcess);
++    }
++    return audioBuffer_;
++  }
++
+   // Copy input data to pre-allocated input buffers
+   for (size_t ch = 0; ch < channelCount; ch++) {
+     inputBuffsHandles_[ch]->copy(*processingBuffer->getChannel(ch), 0, 0, framesToProcess);
+diff --git a/common/cpp/audioapi/core/effects/WorkletProcessingNode.h b/common/cpp/audioapi/core/effects/WorkletProcessingNode.h
+index ffd7473..06d14b5 100644
+--- a/common/cpp/audioapi/core/effects/WorkletProcessingNode.h
++++ b/common/cpp/audioapi/core/effects/WorkletProcessingNode.h
+@@ -3,6 +3,7 @@
+ #include <audioapi/core/AudioNode.h>
+ #include <audioapi/core/BaseAudioContext.h>
+ #include <audioapi/core/utils/worklets/WorkletsRunner.h>
++#include <audioapi/dsp/rnwac/Kernels.h>
+ #include <audioapi/utils/AudioArray.hpp>
+ #include <audioapi/utils/AudioArrayBuffer.hpp>
+ #include <audioapi/utils/AudioBuffer.hpp>
+@@ -38,6 +39,17 @@ class WorkletProcessingNode : public AudioNode {
+       const std::shared_ptr<BaseAudioContext> &context,
+       WorkletsRunner &&workletRunner);
+ 
++  // rn-web-audio-compat patch: run a named C++ kernel (dsp/rnwac/Kernels) instead of the JS worklet. Called on the audio thread
++  // (via scheduleAudioEvent) so no locking is needed.
++  void setKernel(int id) {
++    kernelId_ = id;
++  }
++  void setKernelParam(int index, double value) {
++    if (index >= 0 && index < rnwac::kMaxParams) {
++      kernelParams_[index] = value;
++    }
++  }
++
+  protected:
+   std::shared_ptr<DSPAudioBuffer> processNode(
+       const std::shared_ptr<DSPAudioBuffer> &processingBuffer,
+@@ -45,6 +57,9 @@ class WorkletProcessingNode : public AudioNode {
+ 
+  private:
+   WorkletsRunner workletRunner_;
++  int kernelId_ = 0;
++  double kernelParams_[rnwac::kMaxParams] = {};
++  rnwac::KernelState kernelState_;
+   std::vector<std::shared_ptr<AudioArrayBuffer>> inputBuffsHandles_;
+   std::vector<std::shared_ptr<AudioArrayBuffer>> outputBuffsHandles_;
+ };
+diff --git a/common/cpp/audioapi/core/sources/WorkletSourceNode.cpp b/common/cpp/audioapi/core/sources/WorkletSourceNode.cpp
+index 7f700c7..cd9b4ff 100644
+--- a/common/cpp/audioapi/core/sources/WorkletSourceNode.cpp
++++ b/common/cpp/audioapi/core/sources/WorkletSourceNode.cpp
+@@ -1,5 +1,7 @@
+ #include <audioapi/core/sources/WorkletSourceNode.h>
++#include <algorithm>
+ #include <audioapi/core/utils/Constants.h>
++#include <chrono>
+ #include <memory>
+ #include <utility>
+ 
+@@ -50,6 +52,31 @@ std::shared_ptr<DSPAudioBuffer> WorkletSourceNode::processNode(
+ 
+   size_t outputChannelCount = processingBuffer->getNumberOfChannels();
+ 
++  if (kernelId_ != 0) {
++    // rn-web-audio-compat patch: native kernel path. Writes straight into the output buffer at the scheduled start offset.
++    float *outPtrs[rnwac::kMaxChannels] = {};
++    size_t kernelChannels = std::min(outputChannelCount, static_cast<size_t>(rnwac::kMaxChannels));
++    for (size_t ch = 0; ch < kernelChannels; ++ch) {
++      outPtrs[ch] = processingBuffer->getChannel(ch)->begin() + startOffset;
++    }
++    auto kernelStart = std::chrono::steady_clock::now();
++    rnwac::runKernel(
++        kernelId_,
++        nullptr,
++        outPtrs,
++        static_cast<int>(kernelChannels),
++        static_cast<int>(nonSilentFramesToProcess),
++        kernelParams_,
++        kernelState_,
++        context->getSampleRate(),
++        context->getCurrentTime());
++    rnwac::recordKernelTiming(
++        kernelId_,
++        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - kernelStart).count());
++    handleStopScheduled();
++    return processingBuffer;
++  }
++
+   auto result = workletRunner_.executeOnRuntimeSync(
+       [this, nonSilentFramesToProcess, startOffset, time = context->getCurrentTime()](
+           jsi::Runtime &rt) {
+diff --git a/common/cpp/audioapi/core/sources/WorkletSourceNode.h b/common/cpp/audioapi/core/sources/WorkletSourceNode.h
+index 39ba4d0..a4c73f6 100644
+--- a/common/cpp/audioapi/core/sources/WorkletSourceNode.h
++++ b/common/cpp/audioapi/core/sources/WorkletSourceNode.h
+@@ -3,6 +3,7 @@
+ #include <audioapi/core/sources/AudioScheduledSourceNode.h>
+ #include <audioapi/core/utils/worklets/SafeIncludes.h>
+ #include <audioapi/core/utils/worklets/WorkletsRunner.h>
++#include <audioapi/dsp/rnwac/Kernels.h>
+ #include <audioapi/utils/AudioArray.hpp>
+ #include <audioapi/utils/AudioArrayBuffer.hpp>
+ #include <audioapi/utils/AudioBuffer.hpp>
+@@ -36,12 +37,26 @@ class WorkletSourceNode : public AudioScheduledSourceNode {
+       const std::shared_ptr<BaseAudioContext> &context,
+       WorkletsRunner &&workletRunner);
+ 
++  // rn-web-audio-compat patch: run a named C++ kernel (dsp/rnwac/Kernels) instead of the JS worklet; called on the audio thread
++  // via scheduleAudioEvent.
++  void setKernel(int id) {
++    kernelId_ = id;
++  }
++  void setKernelParam(int index, double value) {
++    if (index >= 0 && index < rnwac::kMaxParams) {
++      kernelParams_[index] = value;
++    }
++  }
++
+  protected:
+   std::shared_ptr<DSPAudioBuffer> processNode(
+       const std::shared_ptr<DSPAudioBuffer> &processingBuffer,
+       int framesToProcess) override;
+ 
+  private:
++  int kernelId_ = 0;
++  double kernelParams_[rnwac::kMaxParams] = {};
++  rnwac::KernelState kernelState_;
+   WorkletsRunner workletRunner_;
+   std::vector<std::shared_ptr<AudioArrayBuffer>> outputBuffsHandles_;
+ };
+diff --git a/common/cpp/audioapi/core/utils/AudioGraphManager.cpp b/common/cpp/audioapi/core/utils/AudioGraphManager.cpp
+index 36f5e93..b6c53fd 100644
+--- a/common/cpp/audioapi/core/utils/AudioGraphManager.cpp
++++ b/common/cpp/audioapi/core/utils/AudioGraphManager.cpp
+@@ -209,6 +209,13 @@ void AudioGraphManager::handleDisconnectAllEvent(std::unique_ptr<Event> event) {
+     from->disconnectNode(*it);
+     it = next;
+   }
++  // rn-web-audio-compat patch: disconnect() must also drop param connections.
++  for (auto it = from->outputParams_.begin(); it != from->outputParams_.end();) {
++    auto next = std::next(it);
++    auto param = *it;
++    from->disconnectParam(param);
++    it = next;
++  }
+   if (auto *mediaElement = dynamic_cast<MediaElementAudioSourceNode *>(from.get())) {
+     mediaElement->onOutputsDisconnected();
+   }
+diff --git a/src/core/BaseAudioContext.ts b/src/core/BaseAudioContext.ts
+index 90916cc..7e43037 100644
+--- a/src/core/BaseAudioContext.ts
++++ b/src/core/BaseAudioContext.ts
+@@ -237,4 +237,20 @@ export default class BaseAudioContext {
+   createWaveShaper(): WaveShaperNode {
+     return new WaveShaperNode(this);
+   }
++
++  // rn-web-audio-compat patch: on-device cost readback for the C++ effect kernels. See src/audio/benchmark.ts's
++  // runNativeKernelBenchmark for the intended usage (reset, run a workload, read once).
++  getKernelTimings(): Array<{
++    id: number;
++    name: string;
++    count: number;
++    avgUs: number;
++    maxUs: number;
++  }> {
++    return this.context.getKernelTimings();
++  }
++
++  resetKernelTimings(): void {
++    this.context.resetKernelTimings();
++  }
+ }
+diff --git a/src/core/WorkletProcessingNode.ts b/src/core/WorkletProcessingNode.ts
+index c27219b..ca88594 100644
+--- a/src/core/WorkletProcessingNode.ts
++++ b/src/core/WorkletProcessingNode.ts
+@@ -2,6 +2,7 @@ import AudioNode from './AudioNode';
+ import type BaseAudioContext from './BaseAudioContext';
+ import { AudioWorkletRuntime } from '../types';
+ import AudioAPIModule from '../AudioAPIModule';
++import type { IWorkletProcessingNode } from '../jsi-interfaces';
+ 
+ export default class WorkletProcessingNode extends AudioNode {
+   constructor(
+@@ -38,4 +39,13 @@ export default class WorkletProcessingNode extends AudioNode {
+     );
+     super(context, node);
+   }
++
++  // rn-web-audio-compat patch: run a named C++ kernel instead of the JS worklet callback.
++  public setKernel(id: number): void {
++    (this.node as IWorkletProcessingNode).setKernel(id);
++  }
++
++  public setKernelParam(index: number, value: number): void {
++    (this.node as IWorkletProcessingNode).setKernelParam(index, value);
++  }
+ }
+diff --git a/src/core/WorkletSourceNode.ts b/src/core/WorkletSourceNode.ts
+index f05d52b..a9e4e76 100644
+--- a/src/core/WorkletSourceNode.ts
++++ b/src/core/WorkletSourceNode.ts
+@@ -2,6 +2,7 @@ import AudioScheduledSourceNode from './AudioScheduledSourceNode';
+ import type BaseAudioContext from './BaseAudioContext';
+ import { AudioWorkletRuntime } from '../types';
+ import AudioAPIModule from '../AudioAPIModule';
++import type { IWorkletSourceNode } from '../jsi-interfaces';
+ 
+ export default class WorkletSourceNode extends AudioScheduledSourceNode {
+   constructor(
+@@ -35,4 +36,13 @@ export default class WorkletSourceNode extends AudioScheduledSourceNode {
+     );
+     super(context, node);
+   }
++
++  // rn-web-audio-compat patch: run a named C++ kernel instead of the JS worklet callback.
++  public setKernel(id: number): void {
++    (this.node as unknown as IWorkletSourceNode).setKernel(id);
++  }
++
++  public setKernelParam(index: number, value: number): void {
++    (this.node as unknown as IWorkletSourceNode).setKernelParam(index, value);
++  }
+ }
+diff --git a/src/jsi-interfaces.ts b/src/jsi-interfaces.ts
+index 90b4481..e87cacc 100644
+--- a/src/jsi-interfaces.ts
++++ b/src/jsi-interfaces.ts
+@@ -106,6 +106,17 @@ export interface IBaseAudioContext {
+   createFileSource: (
+     audioFileOptions: AudioFileSourceOptions
+   ) => IAudioFileSourceNode | null; // null when FFmpeg is not enabled, but needed
++
++  // rn-web-audio-compat patch: on-device cost readback for the C++ effect kernels (dsp/rnwac/Kernels.h). Global across
++  // the process, not per-context — see WorkletProcessingNode/WorkletSourceNode's kernel path.
++  getKernelTimings(): Array<{
++    id: number;
++    name: string;
++    count: number;
++    avgUs: number;
++    maxUs: number;
++  }>;
++  resetKernelTimings(): void;
+ }
+ 
+ export interface IAudioContext extends IBaseAudioContext {
+@@ -321,9 +332,15 @@ export interface IRecorderAdapterNode extends IAudioNode {}
+ 
+ export interface IWorkletNode extends IAudioNode {}
+ 
+-export interface IWorkletSourceNode extends IAudioScheduledSourceNode {}
++export interface IWorkletSourceNode extends IAudioScheduledSourceNode {
++  setKernel(id: number): void;
++  setKernelParam(index: number, value: number): void;
++}
+ 
+-export interface IWorkletProcessingNode extends IAudioNode {}
++export interface IWorkletProcessingNode extends IAudioNode {
++  setKernel(id: number): void;
++  setKernelParam(index: number, value: number): void;
++}
+ 
+ export interface IWaveShaperNode extends IAudioNode {
+   readonly curve: Float32Array | null;
