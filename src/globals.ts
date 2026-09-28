@@ -6,14 +6,15 @@
 //
 // What it does, and why (each item was found on a real device; see docs/FINDINGS.md):
 //  - Exposes react-native-audio-api's classes as globals (AudioContext, BaseAudioContext, OfflineAudioContext, AudioNode,
-//    AudioParam, AudioScheduledSourceNode, ConstantSourceNode). Browser code constructs nodes and does `instanceof`
+//    AudioParam, AudioScheduledSourceNode, AudioBuffer, PeriodicWave and every node class it has). Browser code constructs nodes and does `instanceof`
 //    checks and `X.prototype.y = ...` patches on bare global names, which throw ReferenceError when they're missing.
-//  - GainNode / StereoPannerNode / WaveShaperNode globals are explicit-stereo subclasses: react-native-audio-api nodes
+//  - GainNode / StereoPannerNode / WaveShaperNode / BiquadFilterNode / DelayNode globals are explicit-stereo subclasses
+//    (which still answer `instanceof` for nodes made by the context's create*() methods): react-native-audio-api nodes
 //    otherwise process IN PLACE on their input's buffer, and a node's "already processed this quantum" cache hands a
 //    second consumer its own never-written buffer, so fan-out silences or corrupts the signal. installWebAudioCompat
 //    does the same for the context's create*() methods.
 //  - Adds the missing node types: ChannelMergerNode / ChannelSplitterNode (stereo pass-through only) and
-//    DynamicsCompressorNode.
+//    DynamicsCompressorNode, and an IIRFilterNode constructor (react-native-audio-api only has createIIRFilter()).
 //  - OfflineAudioContext fires `oncomplete` (react-native-audio-api only resolves the startRendering() promise).
 //  - `node.onended = fn` works (react-native-audio-api only has camelCase `onEnded`; without the alias, cleanup code
 //    registered the browser way never runs and every node leaks).
@@ -27,8 +28,16 @@ import {
   AudioNode,
   AudioParam,
   AudioScheduledSourceNode,
-  GainNode,
+  AudioBuffer,
+  AudioBufferSourceNode,
+  AnalyserNode,
+  BiquadFilterNode,
   ConstantSourceNode,
+  ConvolverNode,
+  DelayNode,
+  GainNode,
+  OscillatorNode,
+  PeriodicWave,
   StereoPannerNode,
   WaveShaperNode,
 } from 'react-native-audio-api';
@@ -52,31 +61,36 @@ class CompatOfflineAudioContext extends OfflineAudioContext {
   }
 }
 
-const explicitStereo = { channelCount: 2, channelCountMode: 'explicit' } as const;
+const explicitStereoOptions = { channelCount: 2, channelCountMode: 'explicit' } as const;
 
-class ExplicitStereoGainNode extends GainNode {
-  constructor(context: ConstructorParameters<typeof GainNode>[0], options?: ConstructorParameters<typeof GainNode>[1]) {
-    super(context, { ...explicitStereo, ...options });
-  }
+// Explicit-stereo subclass of a node class, keeping `instanceof` true for instances of the base class (nodes made by
+// the context's create*() methods, or by react-native-audio-api itself).
+function explicitStereo<T extends new (context: any, options?: any) => object>(Base: T): T {
+  const Sub = class extends (Base as new (context: any, options?: any) => object) {
+    constructor(context: unknown, options?: Record<string, unknown>) {
+      super(context, { ...explicitStereoOptions, ...options });
+    }
+
+    static [Symbol.hasInstance](instance: unknown): boolean {
+      return typeof instance === 'object' && instance !== null && Base.prototype.isPrototypeOf(instance);
+    }
+  };
+  Object.defineProperty(Sub, 'name', { value: Base.name });
+  return Sub as unknown as T;
 }
 
-class ExplicitStereoPannerNode extends StereoPannerNode {
-  constructor(
-    context: ConstructorParameters<typeof StereoPannerNode>[0],
-    options?: ConstructorParameters<typeof StereoPannerNode>[1]
-  ) {
-    super(context, { ...explicitStereo, ...options });
-  }
+// react-native-audio-api doesn't export its IIRFilterNode class, only ctx.createIIRFilter(feedforward, feedback). This
+// constructor delegates to it; `instanceof` uses the real prototype, learned from the first node created.
+let iirPrototype: object | null = null;
+function IIRFilterNode(context: { createIIRFilter: (ff: number[], fb: number[]) => object }, options: { feedforward: number[]; feedback: number[] }) {
+  const node = context.createIIRFilter(Array.from(options.feedforward), Array.from(options.feedback));
+  iirPrototype = iirPrototype ?? Object.getPrototypeOf(node);
+  return node;
 }
-
-class ExplicitWaveShaperNode extends WaveShaperNode {
-  constructor(
-    context: ConstructorParameters<typeof WaveShaperNode>[0],
-    options?: ConstructorParameters<typeof WaveShaperNode>[1]
-  ) {
-    super(context, { ...explicitStereo, ...options });
-  }
-}
+Object.defineProperty(IIRFilterNode, Symbol.hasInstance, {
+  value: (instance: unknown) =>
+    iirPrototype !== null && typeof instance === 'object' && instance !== null && iirPrototype.isPrototypeOf(instance),
+});
 
 setGlobalIfMissing('AudioContext', AudioContext);
 setGlobalIfMissing('BaseAudioContext', BaseAudioContext);
@@ -84,10 +98,19 @@ setGlobalIfMissing('OfflineAudioContext', CompatOfflineAudioContext);
 setGlobalIfMissing('AudioNode', AudioNode);
 setGlobalIfMissing('AudioParam', AudioParam);
 setGlobalIfMissing('AudioScheduledSourceNode', AudioScheduledSourceNode);
+setGlobalIfMissing('AudioBuffer', AudioBuffer);
+setGlobalIfMissing('PeriodicWave', PeriodicWave);
+setGlobalIfMissing('AudioBufferSourceNode', AudioBufferSourceNode);
+setGlobalIfMissing('AnalyserNode', AnalyserNode);
 setGlobalIfMissing('ConstantSourceNode', ConstantSourceNode);
-setGlobalIfMissing('GainNode', ExplicitStereoGainNode);
-setGlobalIfMissing('StereoPannerNode', ExplicitStereoPannerNode);
-setGlobalIfMissing('WaveShaperNode', ExplicitWaveShaperNode);
+setGlobalIfMissing('ConvolverNode', ConvolverNode);
+setGlobalIfMissing('IIRFilterNode', IIRFilterNode);
+setGlobalIfMissing('OscillatorNode', OscillatorNode);
+setGlobalIfMissing('GainNode', explicitStereo(GainNode));
+setGlobalIfMissing('StereoPannerNode', explicitStereo(StereoPannerNode));
+setGlobalIfMissing('WaveShaperNode', explicitStereo(WaveShaperNode));
+setGlobalIfMissing('BiquadFilterNode', explicitStereo(BiquadFilterNode));
+setGlobalIfMissing('DelayNode', explicitStereo(DelayNode));
 setGlobalIfMissing('ChannelMergerNode', ChannelMergerNode);
 setGlobalIfMissing('ChannelSplitterNode', ChannelSplitterNode);
 setGlobalIfMissing('DynamicsCompressorNode', DynamicsCompressorNode);

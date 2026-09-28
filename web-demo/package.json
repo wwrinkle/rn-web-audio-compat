@@ -1,0 +1,16 @@
+{
+  "name": "rn-web-audio-compat-web-demo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The reference side of rn-web-audio-compat's conformance suite: the same per-row self-tests as the example app, run against the browser's own Web Audio API.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.0",
+    "vite": "^6.0.0"
+  }
+}

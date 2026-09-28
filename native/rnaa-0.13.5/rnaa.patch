@@ -464,6 +464,118 @@ index 36f5e93..b6c53fd 100644
    if (auto *mediaElement = dynamic_cast<MediaElementAudioSourceNode *>(from.get())) {
      mediaElement->onOutputsDisconnected();
    }
+diff --git a/src/AudioAPIModule/AudioAPIModule.ts b/src/AudioAPIModule/AudioAPIModule.ts
+index 7d97469..374576a 100644
+--- a/src/AudioAPIModule/AudioAPIModule.ts
++++ b/src/AudioAPIModule/AudioAPIModule.ts
+@@ -107,12 +107,19 @@ class AudioAPIModule implements IAudioAPIModule {
+     return [`>=${AudioAPIModule.MIN_WORKLETS_VERSION}`];
+   }
+ 
++  // rn-web-audio-compat patch: one audio worklet runtime shared by every context. A runtime per context was destroyed
++  // when a closed context was garbage-collected, while JS-side worklet objects of its nodes still referenced values in
++  // it; freeing those later crashed the app (SIGSEGV in SerializableJSRef's destructor, on the JS or GC thread).
++  // Sharing is safe: worklet calls lock the runtime (see BaseAudioContextHostObject.cpp in this patch).
++  #audioRuntime_: WorkletRuntime | null = null;
++
+   public createAudioRuntime(): WorkletRuntime | null {
+     if (!this.#canUseWorklets_) {
+       return null;
+     }
+ 
+-    return this.#workletsModule_!.createWorkletRuntime('AudioWorkletRuntime');
++    this.#audioRuntime_ ??= this.#workletsModule_!.createWorkletRuntime('AudioWorkletRuntime');
++    return this.#audioRuntime_;
+   }
+ }
+ 
+diff --git a/src/core/AudioParam.ts b/src/core/AudioParam.ts
+index e403c06..2746b02 100644
+--- a/src/core/AudioParam.ts
++++ b/src/core/AudioParam.ts
+@@ -18,16 +18,33 @@ export default class AudioParam {
+     this.maxValue = audioParam.maxValue;
+   }
+ 
++  // rn-web-audio-compat patch: a `value` write is applied on the audio thread, so reading it straight back returned the
++  // old value (browsers return the written one). Remember the write until the native value reflects it; any other
++  // automation call forgets it.
++  private pendingValue: number | undefined;
++
+   public get value(): number {
+-    return this.audioParam.value;
++    const current = this.audioParam.value;
++    if (this.pendingValue !== undefined) {
++      if (Math.fround(current) === this.pendingValue) {
++        this.pendingValue = undefined;
++      } else {
++        return this.pendingValue;
++      }
++    }
++    return current;
+   }
+ 
+   public set value(value: number) {
+     this.audioParam.value = value;
+     this.setValueAtTime(value, this.context.currentTime);
++    const lo = this.minValue ?? -Infinity;
++    const hi = this.maxValue ?? Infinity;
++    this.pendingValue = Math.fround(Math.min(Math.max(value, lo), hi));
+   }
+ 
+   public setValueAtTime(value: number, startTime: number): AudioParam {
++    this.pendingValue = undefined;
+     if (startTime < 0) {
+       throw new RangeError(
+         `startTime must be a finite non-negative number: ${startTime}`
+@@ -46,6 +63,7 @@ export default class AudioParam {
+   }
+ 
+   public linearRampToValueAtTime(value: number, endTime: number): AudioParam {
++    this.pendingValue = undefined;
+     if (endTime < 0) {
+       throw new RangeError(
+         `endTime must be a finite non-negative number: ${endTime}`
+@@ -67,6 +85,7 @@ export default class AudioParam {
+     value: number,
+     endTime: number
+   ): AudioParam {
++    this.pendingValue = undefined;
+     if (value === 0) {
+       throw new RangeError(`value must be a non-zero number: ${value}`);
+     }
+@@ -93,6 +112,7 @@ export default class AudioParam {
+     startTime: number,
+     timeConstant: number
+   ): AudioParam {
++    this.pendingValue = undefined;
+     if (startTime < 0) {
+       throw new RangeError(
+         `startTime must be a finite non-negative number: ${startTime}`
+@@ -121,6 +141,7 @@ export default class AudioParam {
+     startTime: number,
+     duration: number
+   ): AudioParam {
++    this.pendingValue = undefined;
+     if (startTime < 0) {
+       throw new RangeError(
+         `startTime must be a finite non-negative number: ${startTime}`
+@@ -150,6 +171,7 @@ export default class AudioParam {
+   }
+ 
+   public cancelScheduledValues(cancelTime: number): AudioParam {
++    this.pendingValue = undefined;
+     if (cancelTime < 0) {
+       throw new RangeError(
+         `cancelTime must be a finite non-negative number: ${cancelTime}`
+@@ -163,6 +185,7 @@ export default class AudioParam {
+   }
+ 
+   public cancelAndHoldAtTime(cancelTime: number): AudioParam {
++    this.pendingValue = undefined;
+     if (cancelTime < 0) {
+       throw new RangeError(
+         `cancelTime must be a finite non-negative number: ${cancelTime}`
 diff --git a/src/core/BaseAudioContext.ts b/src/core/BaseAudioContext.ts
 index 90916cc..7e43037 100644
 --- a/src/core/BaseAudioContext.ts
@@ -489,6 +601,48 @@ index 90916cc..7e43037 100644
 +    this.context.resetKernelTimings();
 +  }
  }
+diff --git a/src/core/PeriodicWave.ts b/src/core/PeriodicWave.ts
+index b86aeb1..7749b5a 100644
+--- a/src/core/PeriodicWave.ts
++++ b/src/core/PeriodicWave.ts
+@@ -13,8 +13,11 @@ export function generateRealAndImag(
+     imag = new Float32Array(2);
+     imag[1] = 1;
+   } else {
+-    real = options.real;
+-    imag = options.imag;
++    // rn-web-audio-compat patch: the Web Audio API accepts plain number arrays; the native side needs Float32Array.
++    const toF32 = (v?: ArrayLike<number>) => (v === undefined || v instanceof Float32Array ? v : new Float32Array(v));
++    real = toF32(options.real);
++    imag = toF32(options.imag);
++    options = { ...options, real, imag };
+     PeriodicWaveOptionsValidator.validate(options);
+     if (real && !imag) {
+       imag = new Float32Array(real.length);
+diff --git a/src/core/WaveShaperNode.ts b/src/core/WaveShaperNode.ts
+index 84cbc41..7cdd308 100644
+--- a/src/core/WaveShaperNode.ts
++++ b/src/core/WaveShaperNode.ts
+@@ -12,8 +12,8 @@ export default class WaveShaperNode extends AudioNode {
+     const node = context.context.createWaveShaper(options || {});
+     super(context, node);
+     if (options?.curve) {
+-      this._curve = options.curve;
+-      this.isCurveSet = true;
++      // rn-web-audio-compat patch: the native node ignored a curve given in the options; apply it.
++      this.curve = options.curve instanceof Float32Array ? options.curve : new Float32Array(options.curve);
+     }
+   }
+ 
+@@ -42,6 +42,8 @@ export default class WaveShaperNode extends AudioNode {
+       this.isCurveSet = true;
+     }
+ 
++    // rn-web-audio-compat patch: remember the curve, so the getter returns it (it always returned null).
++    this._curve = curve;
+     (this.node as IWaveShaperNode).setCurve(curve);
+   }
+ 
 diff --git a/src/core/WorkletProcessingNode.ts b/src/core/WorkletProcessingNode.ts
 index c27219b..ca88594 100644
 --- a/src/core/WorkletProcessingNode.ts

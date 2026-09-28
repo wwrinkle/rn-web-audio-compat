@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Audio conformance (web reference)</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #fff; --fg: #1a1a1a; --muted: #666; --card: #f2f2f2; --ok: #166534; --okbg: #dcfce7; --bad: #991b1b; --badbg: #fee2e2; --part: #92400e; --partbg: #fef3c7; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --muted: #999; --card: #1d1d1d; --okbg: #14532d; --ok: #bbf7d0; --badbg: #7f1d1d; --bad: #fecaca; --partbg: #78350f; --part: #fde68a; } }
+      body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); margin: 0 auto; padding: 16px; max-width: 900px; }
+      h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 24px; }
+      .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; background: var(--bg); padding: 8px 0; }
+      .row { background: var(--card); border-radius: 8px; padding: 8px 10px; margin: 6px 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+      .name { font-weight: 600; } .how { color: var(--muted); font-size: 13px; grid-column: 1 / -1; }
+      .result { font-size: 13px; grid-column: 1 / -1; } .ok { color: var(--ok); } .fail { color: var(--bad); }
+      .badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px; margin-left: 6px; }
+      .yes { background: var(--okbg); color: var(--ok); } .partial { background: var(--partbg); color: var(--part); } .no { background: var(--badbg); color: var(--bad); }
+      button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--muted); background: var(--bg); color: var(--fg); cursor: pointer; }
+      button:disabled { opacity: 0.4; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <h1>Web Audio conformance: web reference</h1>
+    <p>The same per-row tests as the rn-web-audio-compat example app, run against this browser's own Web Audio API. Compare results row by row with the app.</p>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
