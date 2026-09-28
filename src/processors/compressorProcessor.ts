@@ -1,15 +1,6 @@
-// Real-time, per-block re-expression of ../../dsp/compressor.ts's
-// whole-buffer math — see that file for the design rationale and
-// attribution (an original soft-knee feedforward compressor, not a
-// superdough port; DynamicsCompressorNode is a standard Web Audio node
-// react-native-audio-api's stable release doesn't implement). State is the
-// envelope follower's running dB value, carried across blocks exactly like
-// it was carried across samples within one call in the original.
-//
-// Registered as its own dedicated node type (compressorNode.ts), not
-// through webAudioShim.ts's AudioWorkletNode registry — superdough
-// constructs this via `new DynamicsCompressorNode(ac, {})` directly
-// (helpers.mjs's getCompressor), not `getWorklet()`.
+// DynamicsCompressorNode's processor: an original soft-knee feedforward compressor (not a port). State is the envelope
+// follower's level in dB, carried across blocks. The spec for the C++ 'compressor' kernel (Kernels.cpp, checked by
+// scripts/kernel-parity) and the JS fallback. Used by DynamicsCompressorNode directly, not through AudioWorkletNode.
 
 import type { WorkletProcessorModule } from '../worklet/types';
 

@@ -37,6 +37,7 @@
     "!src/**/__tests__",
     "native",
     "scripts",
+    "docs",
     "COVERAGE.md",
     "README.md",
     "LICENSE"

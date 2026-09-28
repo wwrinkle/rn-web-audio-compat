@@ -30,6 +30,7 @@ export { fdnReverbProcessor } from './processors/fdnReverbProcessor';
 export { createAudioClock } from './clock/audioClock';
 export type { AudioClock, AudioClockOptions } from './clock/audioClock';
 export { startBackgroundPlayback, stopBackgroundPlayback } from './playback/backgroundPlayback';
+export type { PlaybackNotificationInfo } from './playback/backgroundPlayback';
 
 export {
   isNativePatchInstalled,

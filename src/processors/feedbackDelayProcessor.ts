@@ -1,45 +1,11 @@
-// A from-scratch real-time feedback delay line — NOT a port of superdough's
-// feedbackdelay.mjs. That file gets its repeats from a literal graph cycle
-// (`this.connect(feedbackGain); feedbackGain.connect(this)`), which works in
-// real Web Audio (a DelayNode in the loop guarantees at least one render
-// quantum of latency, so cycles are spec-legal) but is unconditionally
-// rejected by react-native-audio-api's native graph: confirmed by reading
-// `node_modules/react-native-audio-api/common/cpp/audioapi/core/utils/graph/
-// HostGraph.hpp`'s `addEdge()` — it does a flat DFS reachability check with
-// no special case for a delay-broken cycle, and returns CYCLE_DETECTED for
-// *any* cycle. Worse, `AudioNodeHostObject.cpp`'s `connect()` JSI binding
-// discards that error entirely, so `.connect()` "succeeds" from JS with no
-// exception — the edge is just silently never added. Net effect: the first
-// delayed tap plays, but the repeat loop never wires up. See CLAUDE.md for
-// the full finding.
+// Feedback delay line, original (not a port). Browser code usually builds a feedback delay as a graph cycle
+// (delay -> gain -> delay), which react-native-audio-api silently refuses to connect (docs/FINDINGS.md, "The native
+// graph rejects cycles"): one echo, no repeats. This keeps its own circular buffer and mixes the feedback in, so there
+// is no cycle. The spec for the C++ 'feedback-delay' kernel (Kernels.cpp, checked by scripts/kernel-parity) and the JS
+// fallback; used by FeedbackDelayNode.
 //
-// This processor sidesteps the problem by keeping its own circular buffer
-// and mixing feedback in software, one block at a time — no graph cycle
-// involved at all, same pattern as every other stateful processor here
-// (crush/ladder/etc.). Registered as its own dedicated node
-// (feedbackDelayNode.ts), matching compressorProcessor.ts's approach for
-// the same reason: not something superdough constructs via getWorklet().
-//
-// Buffers are pre-allocated in createState() (JS thread, setup time), NOT
-// lazily inside process() the way an earlier version of this file did.
-// That earlier version device-tested as silent (only the dry signal
-// audible, no wet tap at all) despite passing Jest parity tests — this is
-// the only processor in this directory that ever called `new
-// Float32Array(...)` from inside a 'worklet'-tagged function; every other
-// processor only reads/writes typed arrays handed in from outside, or
-// grows plain-object arrays via .push() (ladder). Root cause not fully
-// confirmed (no console/crash-log signal from this call path either — see
-// CLAUDE.md's "uncaught exception" section), but constructing a new typed
-// array from inside the worklet runtime is the one thing this file did
-// that nothing else here had ever exercised, so it's the leading
-// suspect. Pre-allocating up front avoids the question entirely. If a
-// future processor needs to allocate per-channel buffers and the channel
-// count truly isn't knowable until process() sees real input, that's a
-// case worth device-testing in isolation before trusting it.
-//
-// Channel count also isn't known until the first process() call, so
-// maxChannels here is a fixed, generous guess (2 — nothing in this
-// project uses more than stereo) rather than something discovered lazily.
+// Buffers are allocated in createState() (JS thread), never inside process(): a version that allocated inside the
+// worklet was silent on a device. Stereo at most.
 
 import type { WorkletProcessorModule } from '../worklet/types';
 

@@ -119,7 +119,7 @@ void compressor(
 
 
 // ---------------------------------------------------------------------------------------------------------------------
-// fdnReverb: params [decayTime, fadeInTime, lpFreqStart, lpFreqEnd]. Mirrors src/audio/worklets/processors/
+// fdnReverb: params [decayTime, fadeInTime, lpFreqStart, lpFreqEnd]. Mirrors src/processors/
 // fdnReverbProcessor.ts (the spec; see its header for the design). State: bufs[0..7] delay lines, bufs[8..15] allpasses
 // (first 4 left, last 4 right); x[0..7] damping, x[8..15] line gains, x[16..17] input lowpass, x[18..20] the params the
 // coefficients were computed for, x[21] aIn, x[22] aDamp, x[23] outGain.

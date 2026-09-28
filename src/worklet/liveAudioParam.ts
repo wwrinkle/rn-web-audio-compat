@@ -1,29 +1,12 @@
-// Matches the shape superdough's `node.parameters.get(key).value = value`
-// (and, for DynamicsCompressorNode, `node.threshold.value = value` etc.)
-// needs, but — unlike a real (per-hap-fixed) AudioParam as superdough
-// currently uses it — this stays live: writing `.value` after construction
-// updates the next render block, not just the initial one. A strict
-// superset of what superdough does today (params set once), not a
-// regression. See CLAUDE.md's live-modulation section for why this needs a
-// SharedValue (a JSI HostObject, crosses into the worklet runtime by
-// reference) rather than a plain captured number (deep-copied once, dead on
-// arrival for live updates).
+// AudioParam for JS worklet and kernel nodes (AudioWorkletNode.parameters, DynamicsCompressorNode.threshold, ...).
+// `.value` stays live: a write reaches the next render block, not just the first one. The value and the automation
+// schedule are react-native-worklets Synchronizables, which the audio thread can read (a plain captured number would be
+// copied into the worklet once).
 //
-// AUTOMATION (added 2026-09-24): confirmed by reading superdough's real
-// source that this is not optional — `helpers.mjs`'s `getParamADSR` (used
-// for e.g. the ladder filter's cutoff envelope) calls `.setValueAtTime()` /
-// `.exponentialRampToValueAtTime()` / `.linearRampToValueAtTime()` directly
-// on a worklet node's `parameters.get('frequency')`, and `nodePools.mjs`
-// calls `.cancelScheduledValues()` on every param it finds when releasing a
-// pooled node. A plain `.value`-only param throws the moment any of that
-// runs. Real Web Audio automates at a-rate (per-sample); this instead
-// resolves the schedule to a single value once per render block (k-rate
-// approximation) — correct enough for envelope-speed automations (the
-// actual use case), not sample-accurate for fast modulation within one
-// block. `computeAutomatedValue` is exported so worklet call sites can
-// capture it as a local binding (the confirmed-safe way to reference a
-// function from inside a 'worklet'-tagged callback — see CLAUDE.md's
-// crash section) rather than duplicating this logic per file.
+// Automation (setValueAtTime, linear/exponential ramps, cancelScheduledValues) is resolved once per render block: a
+// k-rate approximation, fine for envelopes that span many blocks, not sample-accurate for fast modulation within one.
+// computeAutomatedValue is exported so worklet callbacks can capture it through a local const (see docs/FINDINGS.md,
+// "Worklet rules").
 
 import type { Synchronizable } from 'react-native-worklets';
 
@@ -41,19 +24,7 @@ const EMPTY_SCHEDULE = '[]';
 // call from inside a worklet as long as it's captured via a local const,
 // not referenced by this top-level export name directly (see call sites).
 //
-// DEVICE-VERIFIED CRASH FIX (2026-09-24): this needs its own 'worklet'
-// directive, same as every processor's `process` function has. Without it,
-// this is just an ordinary JS function — calling it from inside an
-// already-worklet-tagged callback (even via the confirmed-safe "local
-// rebind" capture pattern) crashed the app on every processor that has at
-// least one parameter (i.e. every processor except transient-processor,
-// which has zero params and so never executes the call site at all — the
-// one processor that kept working). `process` never had this problem
-// because it's marked 'worklet' at its own definition site in every
-// processors/*.ts file; a captured function value apparently needs that
-// same treatment to serialize/call correctly across the worklet runtime
-// boundary, not just to be captured as an ordinary closure value the way a
-// number or SharedValue is.
+// Needs its own 'worklet' directive: without it, calling it from a worklet callback crashed the app.
 export function computeAutomatedValue(scheduleJson: string, baseValue: number, currentTime: number): number {
   'worklet';
 
@@ -158,30 +129,13 @@ export function readCachedParams(
 }
 
 export class LiveAudioParam {
-  // DEVICE-VERIFIED BUG FIX (2026-09-24): the schedule used to be
-  // read-modify-written straight through `schedule.value` on every call
-  // (read the SharedValue, push an event, write it back). On a real device,
-  // three back-to-back calls (setValueAtTime + two
-  // exponentialRampToValueAtTime, in a single synchronous burst, matching
-  // superdough's real getParamADSR usage) resulted in a schedule containing
-  // only the LAST event — each read-back was seeing stale data, as if the
-  // previous write in the same tick hadn't landed yet, even though the
-  // final write does land (confirmed via `[LADDERENV]` device logs: schedule
-  // showed just the third call's event from the very first worklet block).
-  // Root cause not fully pinned down (Reanimated SharedValue read-after-
-  // write semantics within one synchronous JS-thread burst, is the leading
-  // suspect, unconfirmed), but the fix is robust regardless: `events` here
-  // is a plain JS array, the actual source of truth, never read back from
-  // `schedule`. `schedule` (the SharedValue<string>) is now write-only from
-  // the JS thread's perspective — published after every mutation purely for
-  // the worklet side to read, never round-tripped back through itself.
+  // The source of truth for the schedule, on the JS thread. `schedule` is only written (published for the audio
+  // thread), never read back: read-modify-writing shared state in one synchronous burst (setValueAtTime followed by
+  // two ramps) lost all but the last event on a device.
   private readonly events: AutomationEvent[] = [];
 
-  // `schedule` must be the SAME SharedValue instance the worklet closure
-  // that reads this param was built with (via computeAutomatedValue) —
-  // constructing one internally here would leave it invisible to the
-  // worklet. Callers create it up front alongside the base value SharedValue
-  // (see webAudioShim.ts/compressorNode.ts/feedbackDelay.ts) and pass it in.
+  // `base` and `schedule` must be the same Synchronizables the node's worklet callback captured, so the node creates
+  // them and passes them in (AudioWorkletNode.ts, DynamicsCompressorNode.ts, FeedbackDelayNode.ts).
   constructor(
     private readonly base: Synchronizable<number>,
     readonly schedule: Synchronizable<string>,

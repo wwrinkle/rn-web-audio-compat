@@ -1,9 +1,9 @@
-// Algorithmic reverb for .room() (optimizations.ts 'fdnReverb'): an alternative to superdough's convolution reverb
-// whose cost doesn't grow with the reverb length. Original design (not a port): stereo input -> one-pole input lowpass ->
+// Algorithmic reverb (createFdnReverbNode): an alternative to a convolution reverb whose cost doesn't grow with the
+// reverb length. Original design (not a port): stereo input -> one-pole input lowpass ->
 // 4 Schroeder allpass diffusers per channel -> 8-line feedback delay network (Hadamard mixing, per-line one-pole damping,
 // per-line gain for the requested -60 dB decay time) -> two orthogonal output tap sums.
 //
-// Mapping from superdough's reverb parameters (reverb.mjs / reverbGen.mjs generate a noise IR that decays by 60 dB over
+// Mapping from the parameters of a generated noise-IR reverb (e.g. superdough's reverbGen, which generates a noise IR that decays by 60 dB over
 // `decayTime`, fades in over `fadeInTime`, and is lowpassed with a cutoff sweeping linearly from `lpFreqStart` to
 // `lpFreqEnd` over `decayTime`; the browser's ConvolverNode then normalizes it):
 //   decayTime   -> per-line feedback gain (RT60)
@@ -14,8 +14,8 @@
 //                  spec normalization: RMS 0.00125 * 44100 / sampleRate over 1.5 * decayTime), estimated analytically
 //                  from the loop's per-frequency gain.
 //
-// This TS version is the spec for the C++ kernel (SoundWalkKernels.cpp fdnReverb, checked sample-by-sample by
-// scripts/kernel-parity) and must stay in sync with it. `process` must stay self-contained (worklet rules, see CLAUDE.md).
+// This TS version is the spec for the C++ kernel (Kernels.cpp fdnReverb, checked sample by sample by
+// scripts/kernel-parity) and must stay in sync with it. `process` must stay self-contained (docs/FINDINGS.md).
 
 import type { WorkletProcessorModule } from '../worklet/types';
 

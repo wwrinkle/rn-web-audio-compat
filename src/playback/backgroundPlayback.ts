@@ -18,11 +18,17 @@ async function ensureNotificationPermission(): Promise<void> {
   await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
 }
 
-export async function startBackgroundPlayback(): Promise<void> {
+export interface PlaybackNotificationInfo {
+  title?: string; // default: 'Playing audio'
+  artist?: string;
+}
+
+// Shows the playback notification (Android), which keeps audio running under screen lock.
+export async function startBackgroundPlayback(info: PlaybackNotificationInfo = {}): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
     await ensureNotificationPermission();
-    await PlaybackNotificationManager.show({ title: 'Sound Walk', artist: 'Playing', state: 'playing' });
+    await PlaybackNotificationManager.show({ title: info.title ?? 'Playing audio', artist: info.artist, state: 'playing' });
   } catch (err) {
     console.log('[BACKGROUND-PLAYBACK] start failed', err);
   }

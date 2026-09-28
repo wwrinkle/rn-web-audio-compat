@@ -11,7 +11,7 @@
 // `audioWorklet.addModule()` (installWebAudioCompat) is a no-op that resolves, so code that loads its modules first
 // still works once the matching processors are registered.
 //
-// Rules for JS processors (see CLAUDE.md, "Worklet rules"): `process()` carries its own 'worklet' directive and must be
+// Rules for JS processors (docs/FINDINGS.md, "Worklet rules"): `process()` carries its own 'worklet' directive and must be
 // self-contained (no references to other module-level bindings); any helper called from it needs its own 'worklet'
 // directive too; never touch a Reanimated SharedValue from it (use react-native-worklets' Synchronizable). An exception
 // escaping a worklet callback aborts the whole app, so every callback here is wrapped in try/catch (the block is
@@ -79,15 +79,9 @@ export interface AudioWorkletNodeOptions {
   processorOptions?: Record<string, unknown>;
 }
 
-// Matches the JS-thread-facing shape of `node.port.postMessage`
-// usage (e.g. a pooled oscillator's reset message). Transport is a
-// SharedValue-backed mailbox: postMessage JSON-stringifies the payload into
-// one SharedValue and bumps a generation counter in another; the worklet
-// side (webAudioShim's own wrapper, see below) checks the counter each
-// block and calls the module's onMessage when it changes. Only the JS ->
-// worklet direction is implemented — nothing in scope for this pass needs
-// the reverse (worklet -> JS), so `onmessage` is a inert placeholder, not a
-// real delivery path.
+// `node.port`, JS -> processor only: postMessage JSON-stringifies the payload into a Synchronizable mailbox and bumps
+// a generation counter; the audio callback checks the counter each block and calls the module's onMessage when it
+// changes. Processor -> JS isn't implemented (`onmessage` is never called).
 class WorkletPort {
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
@@ -133,11 +127,8 @@ export class AudioWorkletNode {
       throw new Error(`No worklet processor registered for "${processorName}"`);
     }
 
-    // Plain object + array, not a Map — captured into the worklet closure
-    // below, and Map isn't a type this codebase has confirmed survives the
-    // worklet closure-capture boundary. SharedValues (HostObjects) are
-    // confirmed to cross by reference; keep everything around them as
-    // plain data to avoid introducing an untested capture type.
+    // Plain objects and arrays, not Maps: they are captured into the worklet closure below. The Synchronizables in them
+    // cross into the worklet runtime by reference.
     const sharedParams: Record<string, Synchronizable<number>> = {};
     const scheduleParams: Record<string, Synchronizable<string>> = {};
     const paramNames: string[] = [];
@@ -153,10 +144,7 @@ export class AudioWorkletNode {
     const sampleRate = context.sampleRate;
     const portOutbox = createSynchronizable('');
     const portGeneration = createSynchronizable(0);
-    // Local re-binding, not a reference to the module-level export name —
-    // see liveAudioParam.ts's header and CLAUDE.md's crash section for why
-    // this specific indirection is required for a worklet-tagged callback
-    // to safely call it.
+    // Captured through local consts: a worklet callback can't reference other module-level bindings.
     const computeAutomatedValue = computeAutomatedValueImport;
     const readCachedParams = readCachedParamsImport;
     const versionSync = createSynchronizable(0);
@@ -173,13 +161,8 @@ export class AudioWorkletNode {
       const sourceNode = context.createWorkletSourceNode((audioData, framesToProcess, currentTime) => {
         'worklet';
 
-        // Everything in this callback is inside the try now, not just
-        // process() — see the DEVICE-VERIFIED FINDING in CLAUDE.md: an
-        // uncaught exception anywhere on this call path crashes the whole
-        // app instantly, and that already bit the params-computation loop
-        // itself once (computeAutomatedValue needed its own 'worklet'
-        // directive — see liveAudioParam.ts). Silence the block and keep
-        // going rather than risk the app over any single bad line here.
+        // The whole callback is inside the try: an exception escaping it aborts the app (docs/FINDINGS.md, "Worklet
+        // rules"). A failing block is silenced instead.
         try {
           const params: ParamValues = readCachedParams(
             versionSync,

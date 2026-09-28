@@ -1,9 +1,5 @@
-// Shared shape for a pre-render DSP function used by webAudioShim.ts to stand
-// in for a real-time AudioWorkletProcessor. Strudel/superdough always knows a
-// hap's full duration up front (begin/end are fixed at trigger time), so
-// instead of processing live in a real-time render callback, each renderer
-// runs once over the hap's full sample count and returns the complete result.
-// See ../../../../.claude/plans/rustling-watching-pelican.md for why.
+// Shape of a whole-buffer DSP renderer (reference implementations the tests compare the per-block processors with):
+// runs once over the full input and returns the complete output.
 
 export interface DspRenderParams {
   [paramName: string]: number;

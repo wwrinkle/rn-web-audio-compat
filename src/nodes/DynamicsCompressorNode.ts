@@ -1,15 +1,6 @@
-// DynamicsCompressorNode-shaped wrapper over compressorProcessor.ts's
-// real-time compressor, matching superdough's actual construction pattern
-// (helpers.mjs's getCompressor): `new DynamicsCompressorNode(ac, {})` then
-// `node.threshold.value = x` / `.ratio.value = x` / etc — real named
-// AudioParam-shaped properties, not the generic `.parameters` Map
-// webAudioShim.ts's AudioWorkletNode uses (DynamicsCompressorNode is a
-// standard Web Audio node, not something constructed via getWorklet()).
-//
-// Always effect-style (has input), so — unlike webAudioShim.ts's
-// AudioWorkletNode, which has to support both source and effect processors
-// — this can just subclass WorkletProcessingNode directly, no constructor-
-// returns-different-object trick needed.
+// DynamicsCompressorNode (react-native-audio-api has none): `new DynamicsCompressorNode(ctx, options)` with
+// threshold / knee / ratio / attack / release as AudioParam-like properties. Runs the C++ 'compressor' kernel while
+// native processors are enabled, otherwise compressorProcessor.ts as a JS worklet. Not implemented: `reduction`.
 
 import { WorkletProcessingNode, type BaseAudioContext } from 'react-native-audio-api';
 import { createSynchronizable, type Synchronizable } from 'react-native-worklets';
