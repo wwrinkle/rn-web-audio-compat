@@ -1575,12 +1575,19 @@ const channels: CoverageRow[] = [
     group: CH,
     name: '`ChannelMergerNode` constructor',
     covered: 'partial',
-    how: 'rn-web-audio-compat: a stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global',
+    how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global',
     source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
     strudel: 'yes',
     test: async (t) => {
       const m = new W.ChannelMergerNode(t.ctx, { numberOfInputs: 2 });
+      // A second consumer first, so the measurement is a fan-out branch (it read silence before the merger was
+      // explicit-stereo).
+      const other = t.ctx.createGain();
+      other.gain.value = 0;
+      m.connect(other);
+      other.connect(t.ctx.destination);
       const rms = await gainOf(t, m);
+      other.disconnect();
       // A real merger puts a mono input on one channel (0.5 after the analyser's downmix); the stereo pass-through
       // passes it on both (1.0).
       t.expect(rms > 0.4, `rms ${fmt(rms)}`);
@@ -1591,12 +1598,17 @@ const channels: CoverageRow[] = [
     group: CH,
     name: '`ChannelSplitterNode` constructor',
     covered: 'partial',
-    how: 'rn-web-audio-compat: a stereo pass-through GainNode; global',
+    how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode; global',
     source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
     strudel: 'yes',
     test: async (t) => {
       const s = new W.ChannelSplitterNode(t.ctx, { numberOfOutputs: 2 });
+      const other = t.ctx.createGain();
+      other.gain.value = 0;
+      s.connect(other);
+      other.connect(t.ctx.destination);
       const rms = await gainOf(t, s);
+      other.disconnect();
       t.expect(rms > 0.5, `rms ${fmt(rms)}`);
       return 'passes signal';
     },

@@ -202,8 +202,8 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `ChannelMergerNode` constructor | Partial | rn-web-audio-compat: a stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
-| `ChannelSplitterNode` constructor | Partial | rn-web-audio-compat: a stereo pass-through GainNode; global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
+| `ChannelMergerNode` constructor | Partial | rn-web-audio-compat: an explicit-stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
+| `ChannelSplitterNode` constructor | Partial | rn-web-audio-compat: an explicit-stereo pass-through GainNode; global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
 
 ## PannerNode and AudioListener (3D spatialization)
 

@@ -66,7 +66,10 @@ source (superdough's vowel filter, five parallel bandpasses, cascaded into silen
 
 Fix: a node in explicit channel-count mode mixes into its own buffer, which avoids both problems. The `GainNode`,
 `StereoPannerNode`, `WaveShaperNode`, `BiquadFilterNode` and `DelayNode` globals are explicit-stereo subclasses, and
-`installWebAudioCompat(ctx)` makes the context's `create*()` methods return explicit-stereo nodes too.
+`installWebAudioCompat(ctx)` makes the context's `create*()` methods return explicit-stereo nodes too. The
+`ChannelMergerNode` / `ChannelSplitterNode` pass-throughs are explicit-stereo as well: when they weren't, an analyser
+tapping superdough's output merger (a second consumer) read silence for some patterns and not others, depending on the
+order the graph happened to process the two consumers in.
 
 ## `onended` and leaked nodes
 

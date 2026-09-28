@@ -14,9 +14,13 @@ export interface ChannelMergerOptions {
   numberOfInputs?: number;
 }
 
+// Explicit stereo: a plain GainNode processes in place on its input's buffer, so a second consumer of the merger (e.g.
+// an AnalyserNode tapping superdough's output) could get an unwritten buffer (docs/FINDINGS.md, "Fan-out").
+const explicitStereo = { channelCount: 2, channelCountMode: 'explicit' } as const;
+
 export class ChannelMergerNode extends GainNode {
   constructor(context: BaseAudioContext, _options?: ChannelMergerOptions) {
-    super(context);
+    super(context, explicitStereo);
   }
 }
 
@@ -26,6 +30,6 @@ export interface ChannelSplitterOptions {
 
 export class ChannelSplitterNode extends GainNode {
   constructor(context: BaseAudioContext, _options?: ChannelSplitterOptions) {
-    super(context);
+    super(context, explicitStereo);
   }
 }
