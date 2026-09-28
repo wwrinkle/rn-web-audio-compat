@@ -27,8 +27,7 @@ nothing here is Strudel-specific.
 ## Status
 
 - **Android:** 109/109 conformance tests pass on a Pixel 10 and the emulator, the same as in Chrome.
-- **iOS:** the JS layer and most of the fixes have been used on an iPhone. The current native patch (the kernels and
-  the timing code) has **not been compiled for iOS** yet.
+- **iOS:** 109/109 on an iPhone 13 (iOS 26.5), built by this repo's `iOS example build` workflow.
 - **Distribution:** not published to npm. Install from GitHub.
 - **react-native-audio-api version:** requires **0.13.5** exactly, because the native patch is version-specific.
 

@@ -15,4 +15,5 @@ thread, and [native/README.md](native/README.md) before touching the native patc
   or a stale JS bundle ships. `EXPO_PUBLIC_AUTORUN=1` runs the whole suite on launch; read `[CONFORMANCE]` lines from
   `adb logcat`. Keep the phone unlocked (`adb shell svc power stayon usb`): the app stalls behind the lock screen.
 - **Typecheck** with `npm run typecheck` (the example's tsconfig covers `src/` and `conformance/`).
-- **Unverified:** the iOS compile of the current native patch.
+- **iOS:** run the `iOS example build` workflow (free: public repo), sideload the .ipa, read `[CONFORMANCE]` lines
+  from the device log (e.g. `pymobiledevice3 syslog live`, started before opening the app).
