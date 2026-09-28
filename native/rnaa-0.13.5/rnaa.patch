@@ -21,7 +21,7 @@ index 76c51aa..ac863d5 100644
    int processedFrames = 0;
  
 diff --git a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
-index c7fd697..b50e2f1 100644
+index c7fd697..7e81a3f 100644
 --- a/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
 +++ b/common/cpp/audioapi/HostObjects/BaseAudioContextHostObject.cpp
 @@ -24,6 +24,7 @@
@@ -76,7 +76,7 @@ index c7fd697..b50e2f1 100644
  }
 +
 +// rn-web-audio-compat patch: array of {id, name, count, avgUs, maxUs} for every kernel id that has run at least once since
-+// the last resetKernelTimings() call (or process start). Used by src/audio/benchmark.ts's native kernel benchmark.
++// the last resetKernelTimings() call (or process start). Used by measureAudioLoad() / getNativeTimings().
 +JSI_HOST_FUNCTION_IMPL(BaseAudioContextHostObject, getKernelTimings) {
 +  std::vector<jsi::Value> entries;
 +  {
@@ -577,7 +577,7 @@ index e403c06..2746b02 100644
        throw new RangeError(
          `cancelTime must be a finite non-negative number: ${cancelTime}`
 diff --git a/src/core/BaseAudioContext.ts b/src/core/BaseAudioContext.ts
-index 90916cc..7e43037 100644
+index 90916cc..16e158f 100644
 --- a/src/core/BaseAudioContext.ts
 +++ b/src/core/BaseAudioContext.ts
 @@ -237,4 +237,20 @@ export default class BaseAudioContext {
@@ -585,8 +585,8 @@ index 90916cc..7e43037 100644
      return new WaveShaperNode(this);
    }
 +
-+  // rn-web-audio-compat patch: on-device cost readback for the C++ effect kernels. See src/audio/benchmark.ts's
-+  // runNativeKernelBenchmark for the intended usage (reset, run a workload, read once).
++  // rn-web-audio-compat patch: on-device cost readback for the C++ kernels and the whole render callback (reset, run a
++  // workload, read once). Used by measureAudioLoad() / getNativeTimings().
 +  getKernelTimings(): Array<{
 +    id: number;
 +    name: string;
