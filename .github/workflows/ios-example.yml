@@ -1,0 +1,57 @@
+# Builds the example app for a real iPhone, unsigned, as an .ipa artifact. Sign and install it yourself (e.g. with
+# Sideloader or AltStore). Built with EXPO_PUBLIC_AUTORUN=1 by default: the app runs every self-test on launch and logs
+# `[CONFORMANCE]` lines (read them with e.g. `pymobiledevice3 syslog live`).
+name: iOS example build
+
+on:
+  workflow_dispatch:
+    inputs:
+      autorun:
+        description: Run every self-test on launch
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        working-directory: example
+        run: npm ci
+
+      - name: Generate the iOS project
+        working-directory: example
+        run: npx expo prebuild -p ios --no-install
+
+      - name: Install CocoaPods
+        working-directory: example/ios
+        run: pod install
+
+      - name: Build (unsigned, device)
+        working-directory: example/ios
+        env:
+          EXPO_PUBLIC_AUTORUN: ${{ inputs.autorun && '1' || '' }}
+        run: |
+          WORKSPACE=$(ls -d *.xcworkspace | head -n1)
+          set -o pipefail
+          xcodebuild -workspace "$WORKSPACE" -scheme "${WORKSPACE%.xcworkspace}" -configuration Release -sdk iphoneos \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            build | tail -200
+
+      - name: Package .ipa
+        working-directory: example/ios
+        run: |
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" | head -n1)
+          mkdir -p Payload && cp -R "$APP" Payload/ && zip -qr ../../example-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: example-unsigned-ipa
+          path: example-unsigned.ipa
+          retention-days: 14
