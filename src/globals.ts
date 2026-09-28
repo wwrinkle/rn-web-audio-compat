@@ -15,7 +15,9 @@
 //    does the same for the context's create*() methods.
 //  - Adds the missing node types: ChannelMergerNode / ChannelSplitterNode (stereo pass-through only) and
 //    DynamicsCompressorNode, and an IIRFilterNode constructor (react-native-audio-api only has createIIRFilter()).
-//  - OfflineAudioContext fires `oncomplete` (react-native-audio-api only resolves the startRendering() promise).
+//  - Adds createChannelMerger() / createChannelSplitter() / createDynamicsCompressor() and `onstatechange` to contexts.
+//  - OfflineAudioContext fires `oncomplete` (react-native-audio-api only resolves the startRendering() promise) and has
+//    `length`.
 //  - `node.onended = fn` works (react-native-audio-api only has camelCase `onEnded`; without the alias, cleanup code
 //    registered the browser way never runs and every node leaks).
 //  - `x instanceof AudioParam` is also true for this library's LiveAudioParam (automatable params of JS worklet and
@@ -53,6 +55,12 @@ function setGlobalIfMissing(name: string, value: unknown): void {
 
 class CompatOfflineAudioContext extends OfflineAudioContext {
   oncomplete: ((event: { renderedBuffer: unknown }) => void) | null = null;
+  readonly length: number;
+
+  constructor(...args: [{ length: number }] | [number, number, number]) {
+    super(...(args as [any]));
+    this.length = typeof args[0] === 'object' ? args[0].length : (args[1] as number);
+  }
 
   async startRendering() {
     const renderedBuffer = await super.startRendering();
@@ -114,6 +122,39 @@ setGlobalIfMissing('DelayNode', explicitStereo(DelayNode));
 setGlobalIfMissing('ChannelMergerNode', ChannelMergerNode);
 setGlobalIfMissing('ChannelSplitterNode', ChannelSplitterNode);
 setGlobalIfMissing('DynamicsCompressorNode', DynamicsCompressorNode);
+
+// Factory methods react-native-audio-api lacks, on every context (offline ones too).
+function defineIfMissing(target: object, name: string, value: unknown): void {
+  if (!(name in target)) Object.defineProperty(target, name, { value, writable: true, configurable: true });
+}
+defineIfMissing(BaseAudioContext.prototype, 'createChannelMerger', function (this: BaseAudioContext, numberOfInputs = 6) {
+  return new ChannelMergerNode(this, { numberOfInputs });
+});
+defineIfMissing(BaseAudioContext.prototype, 'createChannelSplitter', function (this: BaseAudioContext, numberOfOutputs = 6) {
+  return new ChannelSplitterNode(this, { numberOfOutputs });
+});
+defineIfMissing(BaseAudioContext.prototype, 'createDynamicsCompressor', function (this: BaseAudioContext) {
+  return new DynamicsCompressorNode(this);
+});
+
+// `onstatechange`, fired when resume() / suspend() / close() change the state (react-native-audio-api has no state
+// events, so a state change the native side makes on its own, e.g. an audio interruption, isn't reported).
+type StateHandler = ((event: { type: string; target: unknown }) => void) | null;
+defineIfMissing(BaseAudioContext.prototype, 'onstatechange', null);
+const wrapped = Symbol.for('rn-web-audio-compat.statechange');
+const acProto = AudioContext.prototype as unknown as Record<PropertyKey, unknown>;
+if (!acProto[wrapped]) {
+  acProto[wrapped] = true;
+  for (const method of ['resume', 'suspend', 'close'] as const) {
+    const original = acProto[method] as (this: AudioContext, ...args: unknown[]) => Promise<unknown>;
+    acProto[method] = async function (this: AudioContext & { onstatechange: StateHandler }, ...args: unknown[]) {
+      const before = this.state;
+      const result = await original.apply(this, args);
+      if (this.state !== before) this.onstatechange?.call(this, { type: 'statechange', target: this });
+      return result;
+    };
+  }
+}
 
 // Keep the default prototype-chain behaviour for native AudioParams, and also accept LiveAudioParam.
 Object.defineProperty(AudioParam, Symbol.hasInstance, {

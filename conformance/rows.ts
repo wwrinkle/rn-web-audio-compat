@@ -114,7 +114,25 @@ const baseAudioContext: CoverageRow[] = [
       return t.ctx.state;
     },
   }),
-  notImplemented(BAC, '`onstatechange`'),
+  row({
+    group: BAC,
+    name: '`onstatechange`',
+    covered: 'partial',
+    how: `rn-web-audio-compat: fired when \`resume()\` / \`suspend()\` / \`close()\` change the state (${RNAA} has no state events, so a change the system makes on its own, e.g. an audio interruption, isn't reported)`,
+    source: G('onstatechange'),
+    strudel: 'no',
+    test: async (t) => {
+      const seen: string[] = [];
+      t.ctx.onstatechange = () => seen.push(t.ctx.state);
+      await t.ctx.suspend();
+      await t.ctx.resume();
+      await t.env.sleep(50);
+      t.ctx.onstatechange = null;
+      // Browsers may report a state more than once (Chrome: suspended, suspended, running).
+      t.expect(seen.includes('suspended') && seen[seen.length - 1] === 'running', `events: ${seen.join(',') || 'none'}`);
+      return `events: ${seen.join(', ')}`;
+    },
+  }),
   notImplemented(BAC, '`listener` (`AudioListener`)'),
   row({
     group: BAC,
@@ -189,8 +207,36 @@ const baseAudioContext: CoverageRow[] = [
       return `constant 0.5 buffer plays at rms ${fmt(rms)}`;
     },
   }),
-  notImplemented(BAC, '`createChannelMerger()`', '— (use `new ChannelMergerNode(ctx)`)'),
-  notImplemented(BAC, '`createChannelSplitter()`', '— (use `new ChannelSplitterNode(ctx)`)'),
+  row({
+    group: BAC,
+    name: '`createChannelMerger()`',
+    covered: 'partial',
+    how: 'rn-web-audio-compat; see ChannelMergerNode',
+    source: G('createChannelMerger'),
+    strudel: 'no',
+    test: async (t) => {
+      const m = t.ctx.createChannelMerger(2);
+      t.expect(m instanceof W.ChannelMergerNode, 'not a ChannelMergerNode');
+      const rms = await gainOf(t, m);
+      t.expect(rms > 0.4, `rms ${fmt(rms)}`);
+      return `passes signal (${fmt(rms)})`;
+    },
+  }),
+  row({
+    group: BAC,
+    name: '`createChannelSplitter()`',
+    covered: 'partial',
+    how: 'rn-web-audio-compat; see ChannelSplitterNode',
+    source: G('createChannelSplitter'),
+    strudel: 'no',
+    test: async (t) => {
+      const s = t.ctx.createChannelSplitter(2);
+      t.expect(s instanceof W.ChannelSplitterNode, 'not a ChannelSplitterNode');
+      const rms = await gainOf(t, s);
+      t.expect(rms > 0.5, `rms ${fmt(rms)}`);
+      return 'passes signal';
+    },
+  }),
   row({
     group: BAC,
     name: '`createConstantSource()`',
@@ -240,7 +286,27 @@ const baseAudioContext: CoverageRow[] = [
       return `0.1 s delay passes signal (rms ${fmt(rms)})`;
     },
   }),
-  notImplemented(BAC, '`createDynamicsCompressor()`', '— (use `new DynamicsCompressorNode(ctx)`)'),
+  row({
+    group: BAC,
+    name: '`createDynamicsCompressor()`',
+    covered: 'yes',
+    how: 'rn-web-audio-compat; see DynamicsCompressorNode',
+    source: G('createDynamicsCompressor'),
+    strudel: 'no',
+    test: async (t) => {
+      const c = t.ctx.createDynamicsCompressor();
+      t.expect(c instanceof W.DynamicsCompressorNode, 'not a DynamicsCompressorNode');
+      c.threshold.value = -40;
+      c.ratio.value = 20;
+      c.knee.value = 0;
+      const o = t.sine(220);
+      o.connect(c);
+      const { rms } = await t.measure(c, 350);
+      o.stop();
+      t.expect(rms < 0.3, `a full-scale sine came out at rms ${fmt(rms)}`);
+      return `full-scale sine compressed to rms ${fmt(rms)}`;
+    },
+  }),
   row({
     group: BAC,
     name: '`createGain()`',
@@ -478,7 +544,20 @@ const offline: CoverageRow[] = [
       return 'oncomplete fired with renderedBuffer';
     },
   }),
-  notImplemented(OAC, '`length`'),
+  row({
+    group: OAC,
+    name: '`length`',
+    covered: 'yes',
+    how: 'rn-web-audio-compat (the global subclass records it)',
+    source: G('OfflineAudioContext'),
+    strudel: 'no',
+    test: (t) => {
+      const a = new W.OfflineAudioContext(1, 4410, 44100);
+      const b = new W.OfflineAudioContext({ numberOfChannels: 2, length: 22050, sampleRate: 44100 });
+      t.expect(a.length === 4410 && b.length === 22050, `lengths ${a.length}, ${b.length}`);
+      return 'both constructor forms';
+    },
+  }),
   row({
     group: OAC,
     name: '`suspend()` / `resume()`',

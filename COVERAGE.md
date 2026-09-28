@@ -18,19 +18,19 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `sampleRate` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `currentTime` | Yes | react-native-audio-api; like a browser, a new context starts on resume() (or its first source start) | — | Yes | — | Yes |
 | `state` | Yes | react-native-audio-api | — | No | — | Yes |
-| `onstatechange` | No | — | — | No | — | — |
+| `onstatechange` | Partial | rn-web-audio-compat: fired when `resume()` / `suspend()` / `close()` change the state (react-native-audio-api has no state events, so a change the system makes on its own, e.g. an audio interruption, isn't reported) | [globals.ts](src/globals.ts) (`onstatechange`) | No | — | Yes |
 | `listener` (`AudioListener`) | No | — | — | No | — | — |
 | `audioWorklet` | Partial | `addModule()` resolves but loads no code: processors are registered from JS instead (`registerWorkletProcessor` / `registerNativeProcessor`) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | — | Yes |
 | `createAnalyser()` | Yes | react-native-audio-api | — | Opt-in | — | Yes |
 | `createBiquadFilter()` | Yes | react-native-audio-api; returns an explicit-stereo node (fan-out safe) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | — | Yes |
 | `createBuffer()` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `createBufferSource()` | Yes | react-native-audio-api | — | Yes | — | Yes |
-| `createChannelMerger()` | No | — (use `new ChannelMergerNode(ctx)`) | — | No | — | — |
-| `createChannelSplitter()` | No | — (use `new ChannelSplitterNode(ctx)`) | — | No | — | — |
+| `createChannelMerger()` | Partial | rn-web-audio-compat; see ChannelMergerNode | [globals.ts](src/globals.ts) (`createChannelMerger`) | No | — | Yes |
+| `createChannelSplitter()` | Partial | rn-web-audio-compat; see ChannelSplitterNode | [globals.ts](src/globals.ts) (`createChannelSplitter`) | No | — | Yes |
 | `createConstantSource()` | Yes | react-native-audio-api | — | No | — | Yes |
 | `createConvolver()` | Yes | react-native-audio-api (patched against a render-thread crash); see ConvolverNode | [rnaa.patch](native/rnaa-0.13.5/rnaa.patch) | Yes | Done: see ConvolverNode | Yes |
 | `createDelay()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | No | — | Yes |
-| `createDynamicsCompressor()` | No | — (use `new DynamicsCompressorNode(ctx)`) | — | No | — | — |
+| `createDynamicsCompressor()` | Yes | rn-web-audio-compat; see DynamicsCompressorNode | [globals.ts](src/globals.ts) (`createDynamicsCompressor`) | No | — | Yes |
 | `createGain()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | — | Yes |
 | `createIIRFilter()` | Yes | react-native-audio-api | — | No | — | Yes |
 | `createOscillator()` | Yes | react-native-audio-api | — | Yes | — | Yes |
@@ -67,7 +67,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `OfflineAudioContext` constructor | Yes | react-native-audio-api; global (a subclass that also fires `oncomplete`) | [globals.ts](src/globals.ts) (`OfflineAudioContext`) | Yes | — | Yes |
 | `startRendering()` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `oncomplete` / `OfflineAudioCompletionEvent` | Yes | rn-web-audio-compat (react-native-audio-api only resolves the promise) | [globals.ts](src/globals.ts) (`OfflineAudioContext`) | Yes | — | Yes |
-| `length` | No | — | — | No | — | — |
+| `length` | Yes | rn-web-audio-compat (the global subclass records it) | [globals.ts](src/globals.ts) (`OfflineAudioContext`) | No | — | Yes |
 | `suspend()` / `resume()` | Yes | react-native-audio-api | — | No | — | Yes |
 
 ## AudioNode
@@ -255,7 +255,7 @@ Counted per row (rows that group several members count once). Partial counts as 
 
 | Scope | Rows | Yes | Partial | No | Coverage | Present at all |
 |---|---|---|---|---|---|---|
-| Whole standard Web Audio API | 140 | 89 | 15 | 36 | **69%** | 74% |
+| Whole standard Web Audio API | 140 | 91 | 18 | 31 | **71%** | 78% |
 | What Strudel uses in normal patterns | 74 | 62 | 12 | 0 | **92%** | 100% |
 | What Strudel uses, including opt-in features | 82 | 68 | 12 | 2 | **90%** | 98% |
 
