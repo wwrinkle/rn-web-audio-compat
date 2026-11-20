@@ -1,5 +1,5 @@
 // The Web Audio API, one row per piece: whether React Native has it through rn-web-audio-compat, how, where, whether
-// Strudel/superdough uses it, and a self-test. COVERAGE.md is generated from this file (npm run coverage), and the
+// Strudel/superdough and Tone.js use it, and a self-test. COVERAGE.md is generated from this file (npm run coverage), and the
 // example app and the web demo render one button per row from it, so the three can't drift apart.
 //
 // Tests only use the standard Web Audio API, so the web demo runs them unchanged against the browser (the reference).
@@ -9,6 +9,8 @@ import { fmt, near } from './tools';
 import { TEST_PROCESSOR } from './testWorklet';
 import { createTestWavArrayBuffer } from './wav';
 
+// `tone` / `toneVia` record whether Tone.js 15.1.22 uses each piece, and through which Tone classes.
+//
 // Web Audio classes through globalThis: React Native's TS config has no DOM types, the web demo's does.
 const W = globalThis as any;
 
@@ -38,13 +40,22 @@ async function automated(t: TestContext, automate: (param: any, now: number) => 
   return rms;
 }
 
-const notImplemented = (group: string, name: string, how = '—', strudel: CoverageRow['strudel'] = 'no'): CoverageRow => ({
+const notImplemented = (
+  group: string,
+  name: string,
+  how = '—',
+  strudel: CoverageRow['strudel'] = 'no',
+  tone: CoverageRow['tone'] = 'no',
+  toneVia?: string
+): CoverageRow => ({
   id: `${group}:${name}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
   group,
   name,
   covered: 'no',
   how,
   strudel,
+  tone,
+  toneVia,
 });
 
 function row(r: Omit<CoverageRow, 'id'> & { id?: string }): CoverageRow {
@@ -61,6 +72,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}, exposed as a global`,
     source: G('BaseAudioContext'),
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: 'standardized-audio-context\'s type checks on every `connect()`',
     test: (t) => {
       t.expect(typeof W.BaseAudioContext === 'function', 'no global BaseAudioContext');
       t.expect(t.ctx instanceof W.BaseAudioContext, 'context is not instanceof BaseAudioContext');
@@ -73,6 +86,7 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       t.expect(t.ctx.destination instanceof W.AudioNode, 'destination is not an AudioNode');
       return `destination, channelCount ${t.ctx.destination.channelCount}`;
@@ -84,6 +98,7 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       t.expect(t.ctx.sampleRate > 0, 'no sample rate');
       return `${t.ctx.sampleRate} Hz`;
@@ -95,6 +110,7 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: `${RNAA}; like a browser, a new context starts on resume() (or its first source start)`,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const a = t.ctx.currentTime;
       await t.env.sleep(300);
@@ -109,6 +125,7 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'yes',
     test: (t) => {
       t.expect(['running', 'suspended', 'closed'].includes(t.ctx.state), `unexpected state ${t.ctx.state}`);
       return t.ctx.state;
@@ -121,6 +138,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `rn-web-audio-compat: fired when \`resume()\` / \`suspend()\` / \`close()\` change the state (${RNAA} has no state events, so a change the system makes on its own, e.g. an audio interruption, isn't reported)`,
     source: G('onstatechange'),
     strudel: 'no',
+    tone: 'yes',
+    toneVia: '`Context` sets it and re-emits `statechange`',
     test: async (t) => {
       const seen: string[] = [];
       t.ctx.onstatechange = () => seen.push(t.ctx.state);
@@ -133,7 +152,7 @@ const baseAudioContext: CoverageRow[] = [
       return `events: ${seen.join(', ')}`;
     },
   }),
-  notImplemented(BAC, '`listener` (`AudioListener`)'),
+  notImplemented(BAC, '`listener` (`AudioListener`)', '—', 'no', 'yes', "`Listener`, created on every context's initialization, wraps its nine params"),
   row({
     group: BAC,
     name: '`audioWorklet`',
@@ -141,6 +160,8 @@ const baseAudioContext: CoverageRow[] = [
     how: '`addModule()` resolves but loads no code: processors are registered from JS instead (`registerWorkletProcessor` / `registerNativeProcessor`)',
     source: INSTALL,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`',
     test: async (t) => {
       t.expect(typeof t.ctx.audioWorklet?.addModule === 'function', 'no audioWorklet.addModule');
       await t.env.prepareTestWorklet(t.ctx);
@@ -153,6 +174,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`)',
     test: (t) => {
       const a = t.ctx.createAnalyser();
       t.expect(a instanceof W.AnalyserNode, 'not an AnalyserNode');
@@ -166,6 +189,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}; returns an explicit-stereo node (fan-out safe)`,
     source: INSTALL,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`Filter`, `MonoSynth`, `AutoFilter`, `Phaser`',
     test: async (t) => {
       const f = t.ctx.createBiquadFilter();
       f.type = 'lowpass';
@@ -184,6 +209,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`ToneAudioBuffer`, `Noise`',
     test: (t) => {
       const b = t.ctx.createBuffer(2, 1000, t.ctx.sampleRate);
       t.expect(b.numberOfChannels === 2 && b.length === 1000, 'wrong shape');
@@ -196,6 +223,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`Player`, `Sampler`, `Noise`',
     test: async (t) => {
       const b = t.ctx.createBuffer(1, t.ctx.sampleRate, t.ctx.sampleRate);
       b.getChannelData(0).fill(0.5);
@@ -214,6 +243,8 @@ const baseAudioContext: CoverageRow[] = [
     how: 'rn-web-audio-compat; see ChannelMergerNode',
     source: G('createChannelMerger'),
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Merge`: stereo effects (`Chorus`, `PingPongDelay`, `StereoWidener`...)',
     test: async (t) => {
       const m = t.ctx.createChannelMerger(2);
       t.expect(m instanceof W.ChannelMergerNode, 'not a ChannelMergerNode');
@@ -229,6 +260,8 @@ const baseAudioContext: CoverageRow[] = [
     how: 'rn-web-audio-compat; see ChannelSplitterNode',
     source: G('createChannelSplitter'),
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Split`, `CrossFade`: stereo effects',
     test: async (t) => {
       const s = t.ctx.createChannelSplitter(2);
       t.expect(s instanceof W.ChannelSplitterNode, 'not a ChannelSplitterNode');
@@ -243,6 +276,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'yes',
+    toneVia: '`Signal` (every envelope and signal)',
     test: async (t) => {
       const c = t.constant(0.5);
       const { rms } = await t.measure(c);
@@ -258,6 +293,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA} (patched against a render-thread crash); see ConvolverNode`,
     source: PATCH,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Convolver`, `Reverb`',
     savings: 'Done: see ConvolverNode',
     test: (t) => {
       const c = t.ctx.createConvolver();
@@ -272,6 +309,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}; explicit-stereo`,
     source: INSTALL,
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Delay`: `FeedbackDelay`, `PingPongDelay`, `Chorus`, `Vibrato`',
     test: async (t) => {
       const d = t.ctx.createDelay(1);
       d.delayTime.value = 0.1;
@@ -293,6 +332,8 @@ const baseAudioContext: CoverageRow[] = [
     how: 'rn-web-audio-compat; see DynamicsCompressorNode',
     source: G('createDynamicsCompressor'),
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Compressor`, `Limiter`, `MultibandCompressor`',
     test: async (t) => {
       const c = t.ctx.createDynamicsCompressor();
       t.expect(c instanceof W.DynamicsCompressorNode, 'not a DynamicsCompressorNode');
@@ -314,6 +355,7 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}; explicit-stereo`,
     source: INSTALL,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const g = t.ctx.createGain();
       g.gain.value = 0.5;
@@ -328,6 +370,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`OnePoleFilter` (`Freeverb`, `PluckSynth`), `PhaseShiftAllpass` (`FrequencyShifter`)',
     test: async (t) => {
       const f = t.ctx.createIIRFilter([0.5], [1]);
       const rms = await gainOf(t, f);
@@ -341,6 +385,7 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const o = t.sine(440);
       const { rms } = await t.measure(o);
@@ -349,13 +394,15 @@ const baseAudioContext: CoverageRow[] = [
       return `440 Hz sine rms ${fmt(rms)}`;
     },
   }),
-  notImplemented(BAC, '`createPanner()`'),
+  notImplemented(BAC, '`createPanner()`', '—', 'no', 'opt-in', '`Panner3D`'),
   row({
     group: BAC,
     name: '`createPeriodicWave()`',
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Oscillator` types other than plain sine/square/sawtooth/triangle (`sine4`, `custom` partials, a nonzero `phase`; `FatOscillator`)',
     test: async (t) => {
       const w = t.ctx.createPeriodicWave(new Float32Array([0, 0, 1]), new Float32Array([0, 1, 0]));
       const o = t.ctx.createOscillator();
@@ -375,6 +422,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}; explicit-stereo`,
     source: INSTALL,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Panner`: `Channel`, `PanVol`, `AutoPanner`, `CrossFade`',
     test: async (t) => {
       const p = t.ctx.createStereoPanner();
       p.pan.value = 0;
@@ -390,6 +439,8 @@ const baseAudioContext: CoverageRow[] = [
     how: `${RNAA}; explicit-stereo`,
     source: INSTALL,
     strudel: 'no',
+    tone: 'yes',
+    toneVia: '`WaveShaper` signal math: `LFO`, `AMSynth`, `PulseOscillator`, `Pow`, `Abs`',
     test: async (t) => {
       const w = t.ctx.createWaveShaper();
       w.curve = new Float32Array([-0.25, 0, 0.25]);
@@ -404,6 +455,8 @@ const baseAudioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`ToneAudioBuffer` loading from URLs (`Player`, `Sampler`)',
     test: async (t) => {
       const wav = createTestWavArrayBuffer(t.ctx.sampleRate, 0.25);
       const buffer = await t.ctx.decodeAudioData(wav);
@@ -423,6 +476,8 @@ const audioContext: CoverageRow[] = [
     how: `${RNAA}; only the \`sampleRate\` option (no \`latencyHint\`, no \`sinkId\`). Global.`,
     source: G('AudioContext'),
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: 'only when not handed a context: Tone then builds one through standardized-audio-context with `latencyHint`',
     test: async (t) => {
       const other = await t.env.createContext({ sampleRate: 44100 });
       const sr = other.sampleRate;
@@ -440,6 +495,8 @@ const audioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`Tone.start()`',
     test: async (t) => {
       await t.ctx.suspend();
       await t.ctx.resume();
@@ -453,6 +510,7 @@ const audioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
     test: async (t) => {
       await t.ctx.suspend();
       t.expect(t.ctx.state === 'suspended', `state ${t.ctx.state}`);
@@ -465,6 +523,8 @@ const audioContext: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Context.close()`',
     test: async (t) => {
       const other = await t.env.createContext();
       await other.close();
@@ -481,14 +541,15 @@ const audioContext: CoverageRow[] = [
     covered: 'partial',
     how: `${RNAA}, but it takes ${RNAA}'s own \`Audio\` element, not an HTML \`<audio>\``,
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       t.expect(typeof t.ctx.createMediaElementSource === 'function', 'missing');
       return 'method present';
     },
   }),
-  notImplemented(AC, '`createMediaStreamSource()`', `— (${RNAA} has \`AudioRecorder\` / \`RecorderAdapterNode\` instead)`),
+  notImplemented(AC, '`createMediaStreamSource()`', `— (${RNAA} has \`AudioRecorder\` / \`RecorderAdapterNode\` instead)`, 'no', 'opt-in', '`UserMedia`'),
   notImplemented(AC, '`createMediaStreamTrackSource()`'),
-  notImplemented(AC, '`createMediaStreamDestination()`'),
+  notImplemented(AC, '`createMediaStreamDestination()`', '—', 'no', 'opt-in', '`Recorder`'),
 ];
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -501,6 +562,8 @@ const offline: CoverageRow[] = [
     how: `${RNAA}; global (a subclass that also fires \`oncomplete\`)`,
     source: G('OfflineAudioContext'),
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`OfflineContext`: `Reverb` (renders its impulse response), `Tone.Offline()`, `Oscillator.asArray()`',
     test: (t) => {
       const o = new W.OfflineAudioContext(1, 4410, 44100);
       t.expect(o.sampleRate === 44100, `sampleRate ${o.sampleRate}`);
@@ -513,6 +576,8 @@ const offline: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`OfflineContext`: `Reverb` (renders its impulse response), `Tone.Offline()`, `Oscillator.asArray()`',
     test: async (t) => {
       const o = new W.OfflineAudioContext(1, 4410, 44100);
       const c = o.createConstantSource();
@@ -532,6 +597,7 @@ const offline: CoverageRow[] = [
     how: `rn-web-audio-compat (${RNAA} only resolves the promise)`,
     source: G('OfflineAudioContext'),
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const o = new W.OfflineAudioContext(1, 441, 44100);
       let got: any = null;
@@ -551,6 +617,7 @@ const offline: CoverageRow[] = [
     how: 'rn-web-audio-compat (the global subclass records it)',
     source: G('OfflineAudioContext'),
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       const a = new W.OfflineAudioContext(1, 4410, 44100);
       const b = new W.OfflineAudioContext({ numberOfChannels: 2, length: 22050, sampleRate: 44100 });
@@ -564,6 +631,7 @@ const offline: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       const o = new W.OfflineAudioContext(1, 441, 44100);
       t.expect(typeof o.suspend === 'function' && typeof o.resume === 'function', 'missing');
@@ -582,6 +650,8 @@ const audioNode: CoverageRow[] = [
     how: `${RNAA}, global`,
     source: G('AudioNode'),
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: 'standardized-audio-context\'s `isAnyAudioNode`',
     test: (t) => {
       t.expect(t.ctx.createGain() instanceof W.AudioNode, 'gain is not instanceof W.AudioNode');
       return 'instanceof works';
@@ -593,6 +663,7 @@ const audioNode: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'no',
     test: (t) => {
       t.expect(t.ctx.createGain().context === t.ctx, 'node.context is not the context');
       return 'node.context === ctx';
@@ -604,6 +675,7 @@ const audioNode: CoverageRow[] = [
     covered: 'yes',
     how: `${RNAA} (read-only)`,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const g = t.ctx.createGain();
       t.expect(g.numberOfInputs === 1 && g.numberOfOutputs === 1, `${g.numberOfInputs}/${g.numberOfOutputs}`);
@@ -616,6 +688,7 @@ const audioNode: CoverageRow[] = [
     covered: 'partial',
     how: `${RNAA}; read-only after construction (set it with constructor options)`,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const g = new W.GainNode(t.ctx, { channelCount: 1, channelCountMode: 'explicit' });
       t.expect(g.channelCount === 1, `channelCount ${g.channelCount}`);
@@ -629,6 +702,7 @@ const audioNode: CoverageRow[] = [
     how: `${RNAA}; read-only after construction. rn-web-audio-compat makes the common nodes \`explicit\` (fan-out fix)`,
     source: G('GainNode'),
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const m = t.ctx.createGain().channelCountMode;
       t.expect(['max', 'clamped-max', 'explicit'].includes(m), `mode ${m}`);
@@ -641,6 +715,8 @@ const audioNode: CoverageRow[] = [
     covered: 'partial',
     how: `${RNAA}; read-only after construction`,
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: 'only when a Tone node is given the option',
     test: (t) => {
       const i = t.ctx.createGain().channelInterpretation;
       t.expect(['speakers', 'discrete'].includes(i), `interpretation ${i}`);
@@ -653,6 +729,7 @@ const audioNode: CoverageRow[] = [
     covered: 'yes',
     how: `${RNAA}; a connection that would create a cycle, or a duplicate, is silently ignored (no error)`,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const a = t.ctx.createGain();
       const b = t.ctx.createGain();
@@ -666,6 +743,8 @@ const audioNode: CoverageRow[] = [
     covered: 'partial',
     how: `${RNAA} ignores the index arguments (fine for stereo routing)`,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: 'every Tone `connect()` passes both',
     test: async (t) => {
       const g = t.ctx.createGain();
       const src = t.constant(1);
@@ -682,6 +761,8 @@ const audioNode: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`LFO`, signals into params',
     test: async (t) => {
       const g = t.ctx.createGain();
       g.gain.value = 0;
@@ -700,6 +781,7 @@ const audioNode: CoverageRow[] = [
     how: `${RNAA} (patched: also releases AudioParam inputs; the unpatched library left a dangling pointer)`,
     source: PATCH,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const g = t.ctx.createGain();
       const src = t.constant(1);
@@ -723,6 +805,8 @@ const audioParam: CoverageRow[] = [
     how: `${RNAA}, global; \`instanceof\` also accepts rn-web-audio-compat's LiveAudioParam`,
     source: G('AudioParam'),
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: 'standardized-audio-context\'s `isAnyAudioParam`',
     test: (t) => {
       t.expect(t.ctx.createGain().gain instanceof W.AudioParam, 'gain.gain is not instanceof W.AudioParam');
       return 'instanceof works';
@@ -734,6 +818,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const g = t.ctx.createGain();
       g.gain.value = 0.3;
@@ -747,6 +832,8 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'yes',
+    toneVia: '`Param` reads them',
     test: (t) => {
       const p = t.ctx.createGain().gain;
       t.expect(p.defaultValue === 1, `defaultValue ${p.defaultValue}`);
@@ -760,6 +847,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const rms = await automated(t, (p, now) => p.setValueAtTime(0.5, now + 0.05), 300);
       t.expect(near(rms, 0.5, 0.05), `rms ${fmt(rms)}`);
@@ -772,6 +860,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const rms = await automated(
         t,
@@ -791,6 +880,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const rms = await automated(
         t,
@@ -810,6 +900,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'yes',
     test: async (t) => {
       const rms = await automated(t, (p, now) => p.setTargetAtTime(0.7, now, 0.02), 350);
       t.expect(near(rms, 0.7, 0.06), `rms ${fmt(rms)}`);
@@ -822,6 +913,8 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
+    toneVia: '`Param` draws curves with linear ramps',
     test: async (t) => {
       const rms = await automated(t, (p, now) => p.setValueCurveAtTime(new Float32Array([0, 0.2, 0.4]), now, 0.1), 350);
       t.expect(near(rms, 0.4, 0.06), `rms ${fmt(rms)}`);
@@ -834,6 +927,7 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const rms = await automated(
         t,
@@ -854,6 +948,8 @@ const audioParam: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'yes',
+    toneVia: '`Param.cancelAndHoldAtTime()`: envelope releases, `Signal`',
     test: (t) => {
       const p = t.ctx.createGain().gain;
       t.expect(typeof p.cancelAndHoldAtTime === 'function', 'missing');
@@ -873,6 +969,7 @@ const scheduled: CoverageRow[] = [
     how: `${RNAA}, global`,
     source: G('AudioScheduledSourceNode'),
     strudel: 'yes',
+    tone: 'no',
     test: (t) => {
       t.expect(t.ctx.createOscillator() instanceof W.AudioScheduledSourceNode, 'oscillator not instanceof');
       return 'instanceof works';
@@ -884,6 +981,7 @@ const scheduled: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const c = t.ctx.createConstantSource();
       c.start(t.ctx.currentTime + 0.05);
@@ -899,6 +997,7 @@ const scheduled: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const c = t.constant(1);
       c.stop(t.ctx.currentTime + 0.02);
@@ -915,6 +1014,7 @@ const scheduled: CoverageRow[] = [
     how: `rn-web-audio-compat alias to ${RNAA}'s \`onEnded\` (without it, browser-style cleanup never runs)`,
     source: G('onended'),
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const c = t.ctx.createConstantSource();
       c.connect(t.ctx.destination);
@@ -941,6 +1041,7 @@ const audioBuffer: CoverageRow[] = [
     how: `${RNAA}, global`,
     source: G('AudioBuffer'),
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       const b = new W.AudioBuffer({ length: 100, numberOfChannels: 2, sampleRate: 44100 });
       t.expect(b.length === 100 && b.numberOfChannels === 2, 'wrong shape');
@@ -953,6 +1054,7 @@ const audioBuffer: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const b = t.ctx.createBuffer(1, 22050, 44100);
       t.expect(near(b.duration, 0.5, 1e-6) && b.sampleRate === 44100, `duration ${b.duration}`);
@@ -965,6 +1067,7 @@ const audioBuffer: CoverageRow[] = [
     covered: 'yes',
     how: `${RNAA} (live shared memory, no copy)`,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const b = t.ctx.createBuffer(1, 10, t.ctx.sampleRate);
       b.getChannelData(0)[3] = 0.25;
@@ -978,6 +1081,7 @@ const audioBuffer: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       const b = t.ctx.createBuffer(1, 10, t.ctx.sampleRate);
       b.getChannelData(0)[2] = 0.5;
@@ -993,6 +1097,8 @@ const audioBuffer: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`ToneAudioBuffer.fromArray()`: `Noise`',
     test: (t) => {
       const b = t.ctx.createBuffer(1, 10, t.ctx.sampleRate);
       b.copyToChannel(new Float32Array([0, 0.75]), 0);
@@ -1016,6 +1122,7 @@ const bufferSource: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const s = t.ctx.createBufferSource();
       const b = oneSecond(t);
@@ -1030,6 +1137,7 @@ const bufferSource: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const s = t.ctx.createBufferSource();
       const b = t.ctx.createBuffer(1, Math.round(t.ctx.sampleRate * 0.4), t.ctx.sampleRate);
@@ -1053,6 +1161,7 @@ const bufferSource: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'no',
     test: (t) => {
       const s = t.ctx.createBufferSource();
       s.detune.value = 100;
@@ -1066,6 +1175,7 @@ const bufferSource: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const s = t.ctx.createBufferSource();
       const b = t.ctx.createBuffer(1, Math.round(t.ctx.sampleRate * 0.1), t.ctx.sampleRate);
@@ -1088,6 +1198,7 @@ const bufferSource: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const s = t.ctx.createBufferSource();
       s.buffer = oneSecond(t);
@@ -1113,6 +1224,7 @@ const oscillator: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const o = t.sine(1000);
       const a = t.ctx.createAnalyser();
@@ -1135,6 +1247,7 @@ const oscillator: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const o = t.ctx.createOscillator();
       o.detune.value = 1200;
@@ -1148,6 +1261,7 @@ const oscillator: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: async (t) => {
       const o = t.ctx.createOscillator();
       o.type = 'square';
@@ -1164,6 +1278,8 @@ const oscillator: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Oscillator` types other than plain sine/square/sawtooth/triangle (`sine4`, `custom` partials, a nonzero `phase`; `FatOscillator`)',
     test: (t) => {
       const o = t.ctx.createOscillator();
       o.setPeriodicWave(t.ctx.createPeriodicWave(new Float32Array([0, 1]), new Float32Array([0, 0])));
@@ -1177,6 +1293,7 @@ const oscillator: CoverageRow[] = [
     how: `${RNAA} (patched: plain number arrays, as the spec allows, used to throw); global`,
     source: `${G('PeriodicWave')}, ${PATCH}`,
     strudel: 'yes',
+    tone: 'no',
     test: (t) => {
       const w = new W.PeriodicWave(t.ctx, { real: [0, 1], imag: [0, 0], disableNormalization: true });
       t.expect(w, 'not constructed');
@@ -1195,6 +1312,7 @@ const misc: CoverageRow[] = [
     how: `${RNAA}; the global is an explicit-stereo subclass`,
     source: G('GainNode'),
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const g = new W.GainNode(t.ctx, { gain: 0.25 });
       t.expect(t.ctx.createGain() instanceof W.GainNode, 'createGain() result not instanceof W.GainNode');
@@ -1209,6 +1327,7 @@ const misc: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const g = t.ctx.createGain();
       t.expect(g.gain.value === 1, `default ${g.gain.value}`);
@@ -1222,6 +1341,7 @@ const misc: CoverageRow[] = [
     how: `${RNAA}; the global is an explicit-stereo subclass`,
     source: G('StereoPannerNode'),
     strudel: 'yes',
+    tone: 'no',
     test: (t) => {
       const p = new W.StereoPannerNode(t.ctx, { pan: -0.5 });
       t.expect(near(p.pan.value, -0.5, 1e-6), `pan ${p.pan.value}`);
@@ -1234,6 +1354,8 @@ const misc: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Panner`',
     test: (t) => {
       const p = t.ctx.createStereoPanner();
       p.pan.value = 1;
@@ -1248,6 +1370,7 @@ const misc: CoverageRow[] = [
     how: `${RNAA}, global`,
     source: G('ConstantSourceNode'),
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const c = new W.ConstantSourceNode(t.ctx, { offset: 0.25 });
       c.start();
@@ -1263,6 +1386,8 @@ const misc: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`Signal`',
     test: (t) => {
       const c = t.ctx.createConstantSource();
       t.expect(c.offset.value === 1, `default ${c.offset.value}`);
@@ -1276,6 +1401,8 @@ const misc: CoverageRow[] = [
     how: `${RNAA}; the global is an explicit-stereo subclass. A feedback loop built from a DelayNode graph cycle does NOT work (the library drops cycle edges): use \`FeedbackDelayNode\``,
     source: G('DelayNode'),
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Delay` (through `createDelay()`)',
     test: (t) => {
       const d = new W.DelayNode(t.ctx, { delayTime: 0.2, maxDelayTime: 1 });
       t.expect(near(d.delayTime.value, 0.2, 1e-6), `delayTime ${d.delayTime.value}`);
@@ -1293,6 +1420,7 @@ const filters: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'yes',
+    tone: 'yes',
     test: (t) => {
       const f = t.ctx.createBiquadFilter();
       f.type = 'highpass';
@@ -1307,6 +1435,8 @@ const filters: CoverageRow[] = [
       covered: 'yes',
       how: RNAA,
       strudel: param === 'frequency' || param === 'Q' ? 'yes' : 'no',
+      tone: 'yes',
+      toneVia: '`Filter`',
       test: (t: TestContext) => {
         const f = t.ctx.createBiquadFilter();
         f[param].value = 3;
@@ -1321,6 +1451,8 @@ const filters: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Filter.getFrequencyResponse()`',
     test: (t) => {
       const f = new W.BiquadFilterNode(t.ctx, { type: 'lowpass', frequency: 1000 });
       const hz = new Float32Array([100, 10000]);
@@ -1338,6 +1470,8 @@ const filters: CoverageRow[] = [
     how: `${RNAA}, global`,
     source: G('IIRFilterNode'),
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`OnePoleFilter` (through `createIIRFilter()`)',
     test: (t) => {
       const f = new W.IIRFilterNode(t.ctx, { feedforward: [1], feedback: [1] });
       const mag = new Float32Array(1);
@@ -1358,6 +1492,8 @@ const convolver: CoverageRow[] = [
     how: `${RNAA} (patched: an unpatched convolver crashed on the audio thread when it processed before \`buffer\` was set; it now outputs silence, as the spec says, so the buffer can be set after connecting, as Tone.js's Reverb does). Cost grows with the impulse response length: for reverb, prefer \`createFdnReverbNode\``,
     source: PATCH,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Convolver`, `Reverb` (set after connecting)',
     savings: 'Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10)',
     test: async (t) => {
       // Connected and fed before it has a buffer (this crashed the unpatched library): silence.
@@ -1381,6 +1517,8 @@ const convolver: CoverageRow[] = [
     covered: 'yes',
     how: `${RNAA}; its normalization matches the Web Audio spec formula within about 1 dB`,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Convolver`',
     test: (t) => {
       const c = t.ctx.createConvolver();
       c.normalize = false;
@@ -1400,6 +1538,7 @@ const waveshaper: CoverageRow[] = [
     how: `${RNAA} (patched: a \`curve\` in the constructor options used to be ignored); the global is an explicit-stereo subclass`,
     source: `${G('WaveShaperNode')}, ${PATCH}`,
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const w = new W.WaveShaperNode(t.ctx, { curve: new Float32Array([-0.25, 0, 0.25]) });
       t.expect(w instanceof W.WaveShaperNode, 'not instanceof');
@@ -1415,6 +1554,8 @@ const waveshaper: CoverageRow[] = [
     how: `${RNAA} (patched: the getter always returned null); can only be set once per node; input is clamped to [-1, 1]`,
     source: PATCH,
     strudel: 'yes',
+    tone: 'yes',
+    toneVia: '`WaveShaper` (see `createWaveShaper()`)',
     test: (t) => {
       const w = t.ctx.createWaveShaper();
       w.curve = new Float32Array([-1, 0, 1]);
@@ -1428,6 +1569,8 @@ const waveshaper: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Distortion`, `Chebyshev`',
     test: (t) => {
       const w = t.ctx.createWaveShaper();
       w.oversample = '2x';
@@ -1446,6 +1589,8 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`)',
     test: (t) => {
       const a = t.ctx.createAnalyser();
       a.fftSize = 1024;
@@ -1459,6 +1604,8 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`)',
     test: (t) => {
       const a = t.ctx.createAnalyser();
       a.smoothingTimeConstant = 0.5;
@@ -1472,6 +1619,7 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       const a = t.ctx.createAnalyser();
       a.minDecibels = -90;
@@ -1485,6 +1633,8 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`)',
     test: async (t) => {
       const c = t.constant(0.5);
       const { peak } = await t.measure(c);
@@ -1499,6 +1649,8 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'opt-in',
+    tone: 'opt-in',
+    toneVia: '`Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`)',
     test: async (t) => {
       const o = t.sine(2000);
       const a = t.ctx.createAnalyser();
@@ -1518,6 +1670,7 @@ const analyser: CoverageRow[] = [
     covered: 'yes',
     how: RNAA,
     strudel: 'no',
+    tone: 'no',
     test: async (t) => {
       const o = t.sine(1000);
       const a = t.ctx.createAnalyser();
@@ -1544,6 +1697,7 @@ const compressor: CoverageRow[] = [
     how: 'rn-web-audio-compat: a C++ kernel on a patched WorkletProcessingNode (JS worklet fallback); global',
     source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](native/rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.cpp)',
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const c = new W.DynamicsCompressorNode(t.ctx, { threshold: -40, ratio: 20, knee: 0, attack: 0.001, release: 0.05 });
       const o = t.sine(220);
@@ -1561,6 +1715,8 @@ const compressor: CoverageRow[] = [
     how: 'rn-web-audio-compat: AudioParam-like params read by the kernel',
     source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`Compressor`, `Limiter`',
     test: (t) => {
       const c = new W.DynamicsCompressorNode(t.ctx);
       c.threshold.value = -12;
@@ -1569,7 +1725,7 @@ const compressor: CoverageRow[] = [
       return 'set / read back';
     },
   }),
-  notImplemented(DC, '`reduction`'),
+  notImplemented(DC, '`reduction`', '—', 'no', 'opt-in', '`Compressor.reduction`'),
 ];
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1582,6 +1738,7 @@ const channels: CoverageRow[] = [
     how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global',
     source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const m = new W.ChannelMergerNode(t.ctx, { numberOfInputs: 2 });
       // A second consumer first, so the measurement is a fan-out branch (it read silence before the merger was
@@ -1605,6 +1762,7 @@ const channels: CoverageRow[] = [
     how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode; global',
     source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
     strudel: 'yes',
+    tone: 'no',
     test: async (t) => {
       const s = new W.ChannelSplitterNode(t.ctx, { numberOfOutputs: 2 });
       const other = t.ctx.createGain();
@@ -1633,7 +1791,13 @@ const panner: CoverageRow[] = [
   '`AudioListener.positionX/Y/Z`',
   '`AudioListener.forwardX/Y/Z` / `upX/Y/Z`',
   '`AudioListener.setPosition()` / `setOrientation()`',
-].map((name) => notImplemented(PAN, name));
+].map((name) =>
+  name.startsWith('`AudioListener.') && !name.includes('setPosition')
+    ? notImplemented(PAN, name, '—', 'no', 'yes', '`Listener` (see `listener`)')
+    : name.includes('setPosition')
+      ? notImplemented(PAN, name)
+      : notImplemented(PAN, name, '—', 'no', 'opt-in', '`Panner3D`')
+);
 
 // ------------------------------------------------------------------------------------------------------------------
 const MS = 'Media stream / element nodes';
@@ -1644,6 +1808,7 @@ const media: CoverageRow[] = [
     covered: 'partial',
     how: `${RNAA} (with its own \`Audio\` element)`,
     strudel: 'no',
+    tone: 'no',
     test: (t) => {
       t.expect(typeof t.ctx.createMediaElementSource === 'function', 'missing');
       return 'factory present';
@@ -1651,7 +1816,7 @@ const media: CoverageRow[] = [
   }),
   notImplemented(MS, '`MediaStreamAudioSourceNode.mediaStream`'),
   notImplemented(MS, '`MediaStreamTrackAudioSourceNode`'),
-  notImplemented(MS, '`MediaStreamAudioDestinationNode.stream`'),
+  notImplemented(MS, '`MediaStreamAudioDestinationNode.stream`', '—', 'no', 'opt-in', '`Recorder`'),
 ];
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -1675,6 +1840,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: resolves without loading code; processors are registered from JS',
     source: INSTALL,
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`; loads the processor source from a Blob URL',
     test: async (t) => {
       await t.env.prepareTestWorklet(t.ctx);
       return 'resolves';
@@ -1687,6 +1854,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: runs the registered processor as a JS worklet on the audio thread, or a registered native implementation (C++ kernel / built-in nodes)',
     source: '[AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`',
     test: async (t) => {
       const n = await testNode(t, { processorOptions: { scale: 0.5 } });
       const rms = await gainOf(t, n, 350);
@@ -1701,6 +1870,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: LiveAudioParam map (value + automation; k-rate, not sample-accurate)',
     source: '[liveAudioParam.ts](src/worklet/liveAudioParam.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`',
     test: async (t) => {
       const n = await testNode(t);
       n.parameters.get('gain').value = 0.25;
@@ -1716,6 +1887,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: JS -> processor only (a mailbox the processor reads each block)',
     source: '[AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher` (a `dispose` message)',
     test: async (t) => {
       const n = await testNode(t);
       n.port.postMessage({ scale: 0.2 });
@@ -1732,6 +1905,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: processors are TS modules registered from JS (`registerWorkletProcessor`), not classes loaded into a worklet scope',
     source: '[types.ts](src/worklet/types.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`',
     test: async (t) => {
       const n = await testNode(t);
       const rms = await gainOf(t, n, 350);
@@ -1746,6 +1921,8 @@ const worklet: CoverageRow[] = [
     how: 'rn-web-audio-compat: read from the processor module',
     source: '[types.ts](src/worklet/types.ts)',
     strudel: 'yes',
+    tone: 'opt-in',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`',
     test: async (t) => {
       const n = await testNode(t);
       t.expect(n.parameters.has('gain'), 'no gain param');

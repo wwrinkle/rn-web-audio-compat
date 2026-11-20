@@ -4,6 +4,7 @@
 
 export type Coverage = 'yes' | 'partial' | 'no';
 export type StrudelUse = 'yes' | 'opt-in' | 'no';
+export type ToneUse = 'yes' | 'opt-in' | 'no';
 
 export interface TestEnv {
   platform: 'native' | 'web';
@@ -41,6 +42,8 @@ export interface CoverageRow {
   how: string; // how React Native gets it (markdown)
   source?: string; // where it is implemented (markdown links, relative to the repo root)
   strudel: StrudelUse; // used by Strudel/superdough
+  tone: ToneUse; // used by Tone.js (15.1.22)
+  toneVia?: string; // which Tone.js classes use it (markdown)
   savings?: string;
   test?: ConformanceTest; // absent for rows that aren't implemented (their demo buttons are disabled)
 }
