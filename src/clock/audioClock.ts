@@ -43,18 +43,27 @@ export interface AudioClock {
 
 export interface AudioClockOptions {
   native?: boolean; // default true
+  // Called with whatever a timer callback throws. The other timers keep running either way. Default: console.error.
+  onError?: (error: unknown) => void;
 }
 
 export function createAudioClock(context: AudioContext, options: AudioClockOptions = {}): AudioClock {
   const timers = new Map<number, ClockTimer>();
   let nextId = 1;
+  const onError = options.onError ?? ((error: unknown) => console.error('rn-web-audio-compat audio clock:', error));
 
+  // Every due timer runs, even after an earlier one threw: one tick delivers all of them, so an uncaught exception
+  // would silently starve every timer after it.
   const onTick = (): void => {
     const now = Date.now();
     timers.forEach((timer) => {
       if (now >= timer.next) {
         timer.next = now - timer.next > timer.ms * 4 ? now + timer.ms : timer.next + timer.ms;
-        timer.fn();
+        try {
+          timer.fn();
+        } catch (error) {
+          onError(error);
+        }
       }
     });
   };
