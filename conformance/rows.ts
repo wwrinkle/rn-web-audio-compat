@@ -39,6 +39,31 @@ async function automated(t: TestContext, automate: (param: any, now: number) => 
   return rms;
 }
 
+// Renders a constant 1.0 (mono) through the panner `build` makes, on a fresh stereo OfflineAudioContext, and returns
+// each output channel's level over the second half (past any parameter smoothing at the start). Equal-power panning of
+// a mono source at azimuth a: L = cos(x * pi/2), R = sin(x * pi/2), x = (a + 90) / 180, times the distance and cone gain.
+async function renderPanner(build: (o: any) => any, setup?: (o: any) => void): Promise<[number, number]> {
+  const frames = 4800;
+  const o = new W.OfflineAudioContext(2, frames, 48000);
+  setup?.(o);
+  const src = o.createConstantSource();
+  const p = build(o);
+  src.connect(p);
+  p.connect(o.destination);
+  src.start();
+  const buf = await o.startRendering();
+  const level = (ch: number) => {
+    const d = buf.getChannelData(ch);
+    let sum = 0;
+    for (let i = frames / 2; i < frames; i++) sum += d[i];
+    return sum / (frames / 2);
+  };
+  return [level(0), level(1)];
+}
+
+const equalpower = (o: any, options: Record<string, unknown> = {}) =>
+  new W.PannerNode(o, { panningModel: 'equalpower', ...options });
+
 const notImplemented = (
   group: string,
   name: string,
@@ -151,7 +176,24 @@ const baseAudioContext: CoverageRow[] = [
       return `events: ${seen.join(', ')}`;
     },
   }),
-  notImplemented(BAC, '`listener` (`AudioListener`)', '—', 'no', 'yes', "`Listener`, created on every context's initialization, wraps its nine params"),
+  row({
+    group: BAC,
+    name: '`listener` (`AudioListener`)',
+    covered: 'yes',
+    how: RNAA,
+    strudel: 'no',
+    tone: 'yes',
+    toneVia: "`Listener`, created on every context's initialization, wraps its nine params",
+    test: (t) => {
+      const l = t.ctx.listener;
+      t.expect(l instanceof W.AudioListener, 'not an AudioListener');
+      const params = ['positionX', 'positionY', 'positionZ', 'forwardX', 'forwardY', 'forwardZ', 'upX', 'upY', 'upZ'];
+      const values = params.map((name) => l[name]?.value);
+      t.expect(params.every((name) => l[name] instanceof W.AudioParam), 'missing params');
+      t.expect(values.join() === '0,0,0,0,0,-1,0,1,0', `defaults ${values.join()}`);
+      return 'nine params, spec defaults';
+    },
+  }),
   row({
     group: BAC,
     name: '`audioWorklet`',
@@ -390,7 +432,25 @@ const baseAudioContext: CoverageRow[] = [
       return `440 Hz sine rms ${fmt(rms)}`;
     },
   }),
-  notImplemented(BAC, '`createPanner()`', '—', 'no', 'opt-in', '`Panner3D`'),
+  row({
+    group: BAC,
+    name: '`createPanner()`',
+    covered: 'yes',
+    how: RNAA,
+    strudel: 'no',
+    tone: 'opt-in',
+    toneVia: '`Panner3D`',
+    test: async (t) => {
+      const [l, r] = await renderPanner((o) => {
+        const p = o.createPanner();
+        p.panningModel = 'equalpower';
+        p.positionZ.value = -1;
+        return p;
+      });
+      t.expect(near(l, Math.SQRT1_2, 0.02) && near(r, Math.SQRT1_2, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `source ahead: L ${fmt(l)} R ${fmt(r)}`;
+    },
+  }),
   row({
     group: BAC,
     name: '`createPeriodicWave()`',
@@ -1703,18 +1763,22 @@ const compressor: CoverageRow[] = [
   row({
     group: DC,
     name: '`threshold` / `knee` / `ratio` / `attack` / `release`',
-    covered: 'yes',
-    how: 'rn-web-audio-compat: AudioParam-like params read by the kernel',
-    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts)',
+    covered: 'partial',
+    how: 'rn-web-audio-compat: params read by the kernel once per block, which pass `instanceof AudioParam`; automation takes effect at the call, not at its scheduled time',
+    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [kernelParam.ts](src/kernels/kernelParam.ts)',
     strudel: 'yes',
     tone: 'opt-in',
-    toneVia: '`Compressor`, `Limiter`',
+    toneVia: '`Compressor`, `Limiter` (wrap each in a `Param`, which asserts `instanceof AudioParam`)',
     test: (t) => {
       const c = new W.DynamicsCompressorNode(t.ctx);
+      const names = ['threshold', 'knee', 'ratio', 'attack', 'release'];
+      t.expect(names.every((n) => c[n] instanceof W.AudioParam), 'not AudioParams');
+      const defaults = names.map((n) => fmt(c[n].defaultValue, 3)).join();
+      t.expect(defaults === '-24.000,30.000,12.000,0.003,0.250', `defaultValue ${defaults}`);
       c.threshold.value = -12;
       c.ratio.value = 4;
       t.expect(c.threshold.value === -12 && c.ratio.value === 4, 'not set');
-      return 'set / read back';
+      return 'AudioParams with the spec defaults; set / read back';
     },
   }),
   notImplemented(DC, '`reduction`', '—', 'no', 'opt-in', '`Compressor.reduction`'),
@@ -1770,25 +1834,222 @@ const channels: CoverageRow[] = [
 
 // ------------------------------------------------------------------------------------------------------------------
 const PAN = 'PannerNode and AudioListener (3D spatialization)';
+const H = Math.SQRT1_2; // each channel's gain for a source straight ahead
+const panTone = { strudel: 'no', tone: 'opt-in', toneVia: '`Panner3D`' } as const;
+const listenerTone = { strudel: 'no', tone: 'yes', toneVia: '`Listener` (see `listener`)' } as const;
 const panner: CoverageRow[] = [
-  '`PannerNode` constructor',
-  '`PannerNode.panningModel`',
-  '`PannerNode.distanceModel`',
-  '`PannerNode.refDistance` / `maxDistance` / `rolloffFactor`',
-  '`PannerNode.coneInnerAngle` / `coneOuterAngle` / `coneOuterGain`',
-  '`PannerNode.positionX/Y/Z`',
-  '`PannerNode.orientationX/Y/Z`',
-  '`PannerNode.setPosition()` / `setOrientation()`',
-  '`AudioListener.positionX/Y/Z`',
-  '`AudioListener.forwardX/Y/Z` / `upX/Y/Z`',
-  '`AudioListener.setPosition()` / `setOrientation()`',
-].map((name) =>
-  name.startsWith('`AudioListener.') && !name.includes('setPosition')
-    ? notImplemented(PAN, name, '—', 'no', 'yes', '`Listener` (see `listener`)')
-    : name.includes('setPosition')
-      ? notImplemented(PAN, name)
-      : notImplemented(PAN, name, '—', 'no', 'opt-in', '`Panner3D`')
-);
+  row({
+    group: PAN,
+    name: '`PannerNode` constructor',
+    covered: 'yes',
+    how: `${RNAA}. Global`,
+    ...panTone,
+    test: async (t) => {
+      let made: any;
+      const [l, r] = await renderPanner((o) => (made = equalpower(o, { positionX: 1 })));
+      t.expect(made instanceof W.PannerNode, 'not a PannerNode');
+      t.expect(near(l, 0, 0.02) && near(r, 1, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `{ positionX: 1 } -> hard right (L ${fmt(l)} R ${fmt(r)})`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.panningModel`',
+    covered: 'partial',
+    how: `${RNAA}; \`'HRTF'\` is accepted but renders as \`'equalpower'\``,
+    ...panTone,
+    toneVia: "`Panner3D` (default `'HRTF'`)",
+    test: async (t) => {
+      const p = t.ctx.createPanner();
+      p.panningModel = 'HRTF';
+      t.expect(p.panningModel === 'HRTF', `read back ${p.panningModel}`);
+      p.panningModel = 'equalpower';
+      t.expect(p.panningModel === 'equalpower', `read back ${p.panningModel}`);
+      const [l, r] = await renderPanner((o) => equalpower(o, { positionX: -1 }));
+      t.expect(near(l, 1, 0.02) && near(r, 0, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `reads back; equalpower hard left (L ${fmt(l)} R ${fmt(r)})`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.distanceModel`',
+    covered: 'yes',
+    how: RNAA,
+    ...panTone,
+    test: async (t) => {
+      // Source straight ahead at distance d, refDistance 1, rolloffFactor 1, maxDistance 10.
+      const at = async (distanceModel: string, d: number) =>
+        (await renderPanner((o) => equalpower(o, { distanceModel, maxDistance: 10, positionZ: -d })))[0] / H;
+      const inverse = await at('inverse', 10); // 1 / (1 + (d - 1)) = 0.1
+      const linear = await at('linear', 5.5); // 1 - (d - 1) / (10 - 1) = 0.5
+      const exponential = await at('exponential', 4); // d^-1 = 0.25
+      t.expect(near(inverse, 0.1, 0.01), `inverse ${fmt(inverse)}`);
+      t.expect(near(linear, 0.5, 0.02), `linear ${fmt(linear)}`);
+      t.expect(near(exponential, 0.25, 0.02), `exponential ${fmt(exponential)}`);
+      return `gains: inverse ${fmt(inverse)}, linear ${fmt(linear)}, exponential ${fmt(exponential)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.refDistance` / `maxDistance` / `rolloffFactor`',
+    covered: 'yes',
+    how: RNAA,
+    ...panTone,
+    test: async (t) => {
+      const options = { distanceModel: 'linear', refDistance: 2, maxDistance: 6, rolloffFactor: 0.5 };
+      const p = equalpower(t.ctx, options);
+      const read = [p.refDistance, p.maxDistance, p.rolloffFactor].join();
+      t.expect(read === '2,6,0.5', `read back ${read}`);
+      // 1 - 0.5 * (4 - 2) / (6 - 2) = 0.75
+      const g = (await renderPanner((o) => equalpower(o, { ...options, positionZ: -4 })))[0] / H;
+      t.expect(near(g, 0.75, 0.02), `gain ${fmt(g)}`);
+      return `linear, ref 2, max 6, rolloff 0.5, d 4: gain ${fmt(g)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.coneInnerAngle` / `coneOuterAngle` / `coneOuterGain`',
+    covered: 'yes',
+    how: RNAA,
+    ...panTone,
+    test: async (t) => {
+      const cone = { coneInnerAngle: 60, coneOuterAngle: 120, coneOuterGain: 0.1 };
+      const p = equalpower(t.ctx, cone);
+      const read = [p.coneInnerAngle, p.coneOuterAngle, p.coneOuterGain].map((x: number) => fmt(x, 2)).join();
+      t.expect(read === '60.00,120.00,0.10', `read back ${read}`);
+      // Pointing sideways (the default orientation, +x) at a listener 90 degrees off its axis: outside the outer cone.
+      const g = (await renderPanner((o) => equalpower(o, { ...cone, positionZ: -1 })))[0] / H;
+      t.expect(near(g, 0.1, 0.01), `gain ${fmt(g)}`);
+      return `listener outside the cone: gain ${fmt(g)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.positionX/Y/Z`',
+    covered: 'yes',
+    how: RNAA,
+    ...panTone,
+    test: async (t) => {
+      const p = t.ctx.createPanner();
+      t.expect([p.positionX, p.positionY, p.positionZ].every((x: any) => x instanceof W.AudioParam), 'not AudioParams');
+      const [l, r] = await renderPanner((o) => {
+        const q = equalpower(o);
+        q.positionX.value = -2; // inverse distance: gain 1 / 2
+        return q;
+      });
+      t.expect(near(l, 0.5, 0.02) && near(r, 0, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `x = -2: L ${fmt(l)} R ${fmt(r)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.orientationX/Y/Z`',
+    covered: 'yes',
+    how: RNAA,
+    ...panTone,
+    test: async (t) => {
+      const p = t.ctx.createPanner();
+      const d = [p.orientationX.value, p.orientationY.value, p.orientationZ.value].join();
+      t.expect(d === '1,0,0', `defaults ${d}`);
+      // The cone row's setup, but facing the listener: inside the inner cone, full gain.
+      const g =
+        (
+          await renderPanner((o) => {
+            const q = equalpower(o, { coneInnerAngle: 60, coneOuterAngle: 120, coneOuterGain: 0.1, positionZ: -1 });
+            q.orientationX.value = 0;
+            q.orientationZ.value = 1;
+            return q;
+          })
+        )[0] / H;
+      t.expect(near(g, 1, 0.02), `gain ${fmt(g)}`);
+      return `facing the listener: gain ${fmt(g)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`PannerNode.setPosition()` / `setOrientation()`',
+    covered: 'yes',
+    how: 'Sets the six params (deprecated in the spec; react-native-audio-api lacks them)',
+    source: G('PannerNode.prototype.setPosition'),
+    strudel: 'no',
+    tone: 'no',
+    test: async (t) => {
+      // Checked by what renders: Chrome doesn't update the params' `value` from these deprecated setters.
+      const [l, r] = await renderPanner((o) => {
+        const q = equalpower(o);
+        q.setPosition(2, 0, 0);
+        return q;
+      });
+      t.expect(near(l, 0, 0.02) && near(r, 0.5, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      // The cone row's setup turned to face the listener: full gain instead of the outer cone's 0.1.
+      const g =
+        (
+          await renderPanner((o) => {
+            const q = equalpower(o, { coneInnerAngle: 60, coneOuterAngle: 120, coneOuterGain: 0.1 });
+            q.setPosition(0, 0, -1);
+            q.setOrientation(0, 0, 1);
+            return q;
+          })
+        )[0] / H;
+      t.expect(near(g, 1, 0.02), `facing gain ${fmt(g)}`);
+      return `setPosition(2, 0, 0): L ${fmt(l)} R ${fmt(r)}; setOrientation facing: gain ${fmt(g)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`AudioListener.positionX/Y/Z`',
+    covered: 'yes',
+    how: RNAA,
+    ...listenerTone,
+    test: async (t) => {
+      // A listener 1 to the left of the source hears it hard right.
+      const [l, r] = await renderPanner(
+        (o) => equalpower(o),
+        (o) => (o.listener.positionX.value = -1)
+      );
+      t.expect(near(l, 0, 0.02) && near(r, 1, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `listener at x = -1: L ${fmt(l)} R ${fmt(r)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`AudioListener.forwardX/Y/Z` / `upX/Y/Z`',
+    covered: 'yes',
+    how: RNAA,
+    ...listenerTone,
+    test: async (t) => {
+      // Facing +x, a source at -z is on the listener's left.
+      const [l, r] = await renderPanner(
+        (o) => equalpower(o, { positionZ: -1 }),
+        (o) => {
+          o.listener.forwardX.value = 1;
+          o.listener.forwardZ.value = 0;
+        }
+      );
+      t.expect(near(l, 1, 0.02) && near(r, 0, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `facing +x, source at -z: L ${fmt(l)} R ${fmt(r)}`;
+    },
+  }),
+  row({
+    group: PAN,
+    name: '`AudioListener.setPosition()` / `setOrientation()`',
+    covered: 'yes',
+    how: `${RNAA} (deprecated in the spec)`,
+    strudel: 'no',
+    tone: 'no',
+    test: async (t) => {
+      const [l, r] = await renderPanner(
+        (o) => equalpower(o, { positionZ: -1 }),
+        (o) => {
+          o.listener.setPosition(0, 0, 0);
+          o.listener.setOrientation(-1, 0, 0, 0, 1, 0);
+        }
+      );
+      t.expect(near(l, 0, 0.02) && near(r, 1, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
+      return `facing -x, source at -z: L ${fmt(l)} R ${fmt(r)}`;
+    },
+  }),
+];
 
 // ------------------------------------------------------------------------------------------------------------------
 const MS = 'Media stream / element nodes';

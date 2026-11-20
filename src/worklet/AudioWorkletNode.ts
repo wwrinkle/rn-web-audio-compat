@@ -238,7 +238,8 @@ export class AudioWorkletNode {
 
     const parameters = new Map<string, LiveAudioParam>();
     for (const name of paramNames) {
-      parameters.set(name, new LiveAudioParam(sharedParams[name], scheduleParams[name], paramVersion));
+      const defaultValue = module.parameterDescriptors.find((d) => d.name === name)?.defaultValue ?? 0;
+      parameters.set(name, new LiveAudioParam(sharedParams[name], scheduleParams[name], paramVersion, defaultValue));
     }
 
     const port = new WorkletPort(portOutbox, portGeneration);

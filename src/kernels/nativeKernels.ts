@@ -13,6 +13,7 @@ import { compressorProcessor } from '../processors/compressorProcessor';
 import { fdnReverbProcessor } from '../processors/fdnReverbProcessor';
 import { feedbackDelayProcessor } from '../processors/feedbackDelayProcessor';
 import type { WorkletProcessorModule } from '../worklet/types';
+import { KernelParam } from './kernelParam';
 import { areNativeProcessorsEnabled } from '../worklet/AudioWorkletNode';
 import { createKernelEffectNode, createKernelSourceNode, type KernelHostObject } from '../native/nativeModule';
 
@@ -71,13 +72,7 @@ export function buildKernelParams(
 // Kernel mode for the dedicated node classes (DynamicsCompressorNode, FeedbackDelayNode) follows the native switch.
 export const areNativeKernelsEnabled = areNativeProcessorsEnabled;
 
-export interface KernelParam {
-  value: number;
-  setValueAtTime: (v: number, t?: number) => KernelParam;
-  linearRampToValueAtTime: (v: number, t?: number) => KernelParam;
-  exponentialRampToValueAtTime: (v: number, t?: number) => KernelParam;
-  cancelScheduledValues: (t?: number) => KernelParam;
-}
+export { KernelParam };
 
 // A `parameters` map over a kernel node's flat params. Automation calls are applied immediately (scheduled changes take
 // effect at the call, not at their scheduled time; fine for params set once per note).
@@ -94,30 +89,7 @@ export function kernelParameters(
       current[index] = v;
       node.setKernelParam(index, v);
     };
-    const param: KernelParam = {
-      get value() {
-        return current[index];
-      },
-      set value(v: number) {
-        set(v);
-      },
-      setValueAtTime(v) {
-        set(v);
-        return param;
-      },
-      linearRampToValueAtTime(v) {
-        set(v);
-        return param;
-      },
-      exponentialRampToValueAtTime(v) {
-        set(v);
-        return param;
-      },
-      cancelScheduledValues() {
-        return param;
-      },
-    };
-    parameters.set(descriptor.name, param);
+    parameters.set(descriptor.name, new KernelParam(set, () => current[index], descriptor.defaultValue));
   });
 
   return {

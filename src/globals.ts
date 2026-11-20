@@ -15,13 +15,14 @@
 //    does the same for the context's create*() methods.
 //  - Adds the missing node types: DynamicsCompressorNode, and an IIRFilterNode constructor (react-native-audio-api only
 //    has createIIRFilter()). ChannelMergerNode / ChannelSplitterNode / PannerNode / AudioListener are its own since 1.0.
-//  - Adds createDynamicsCompressor() and `onstatechange` to contexts.
+//  - Adds createDynamicsCompressor() and `onstatechange` to contexts, and the deprecated PannerNode.setPosition() /
+//    setOrientation().
 //  - OfflineAudioContext fires `oncomplete` (react-native-audio-api only resolves the startRendering() promise) and has
 //    `length`.
 //  - `param.value` reads back what was just written (react-native-audio-api returns the old value until the audio
 //    thread has applied the change, so `p.value = 3; p.value` gave the previous value).
-//  - `x instanceof AudioParam` is also true for this library's LiveAudioParam (automatable params of JS worklet and
-//    kernel nodes), so code that walks a node's params finds them.
+//  - `x instanceof AudioParam` is also true for this library's LiveAudioParam and KernelParam (the params of JS worklet
+//    and C++ kernel nodes), so code that walks or wraps a node's params accepts them.
 
 import {
   OfflineAudioContext,
@@ -49,6 +50,7 @@ import {
 } from 'react-native-audio-api';
 import { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
 import { LiveAudioParam } from './worklet/liveAudioParam';
+import { KernelParam } from './kernels/kernelParam';
 
 function setGlobalIfMissing(name: string, value: unknown): void {
   if (typeof (globalThis as Record<string, unknown>)[name] === 'undefined') {
@@ -136,6 +138,19 @@ defineIfMissing(BaseAudioContext.prototype, 'createDynamicsCompressor', function
   return new DynamicsCompressorNode(this);
 });
 
+// PannerNode.setPosition() / setOrientation(): deprecated in the spec, still in every browser, missing from
+// react-native-audio-api (its AudioListener has them).
+defineIfMissing(PannerNode.prototype, 'setPosition', function (this: PannerNode, x: number, y: number, z: number) {
+  this.positionX.value = x;
+  this.positionY.value = y;
+  this.positionZ.value = z;
+});
+defineIfMissing(PannerNode.prototype, 'setOrientation', function (this: PannerNode, x: number, y: number, z: number) {
+  this.orientationX.value = x;
+  this.orientationY.value = y;
+  this.orientationZ.value = z;
+});
+
 // `onstatechange`, fired when resume() / suspend() / close() change the state (react-native-audio-api has no state
 // events, so a state change the native side makes on its own, e.g. an audio interruption, isn't reported).
 type StateHandler = ((event: { type: string; target: unknown }) => void) | null;
@@ -155,10 +170,13 @@ if (!acProto[wrapped]) {
   }
 }
 
-// Keep the default prototype-chain behaviour for native AudioParams, and also accept LiveAudioParam.
+// Keep the default prototype-chain behaviour for native AudioParams, and also accept this library's params of JS worklet
+// nodes (LiveAudioParam) and C++ kernel nodes (KernelParam). Libraries check params this way (Tone.js, through
+// standardized-audio-context, asserts it for every param it wraps).
 Object.defineProperty(AudioParam, Symbol.hasInstance, {
   value: (instance: unknown): boolean =>
     instance instanceof LiveAudioParam ||
+    instance instanceof KernelParam ||
     (typeof instance === 'object' && instance !== null && AudioParam.prototype.isPrototypeOf(instance)),
   configurable: true,
 });

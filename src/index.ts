@@ -14,8 +14,8 @@ export type { AudioWorkletNodeOptions, NativeProcessorFactory } from './worklet/
 export type { WorkletProcessorModule, ParamDescriptor, ParamValues, ProcessBlock, ProcessorKind } from './worklet/types';
 export { LiveAudioParam } from './worklet/liveAudioParam';
 
-export { registerKernel, getKernelEntry, kernelEntries, buildKernelParams, createNativeKernelNode, createKernelNode, kernelParameters } from './kernels/nativeKernels';
-export type { KernelEntry, KernelParam } from './kernels/nativeKernels';
+export { registerKernel, getKernelEntry, kernelEntries, buildKernelParams, createNativeKernelNode, createKernelNode, kernelParameters, KernelParam } from './kernels/nativeKernels';
+export type { KernelEntry } from './kernels/nativeKernels';
 
 export { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
 export { FeedbackDelayNode } from './nodes/FeedbackDelayNode';

@@ -78,7 +78,8 @@ export function buildDualModeNode(
 
   const params: Record<string, LiveAudioParam> = {};
   for (const name of paramNames) {
-    params[name] = new LiveAudioParam(sharedParams[name], scheduleParams[name], paramVersion);
+    const defaultValue = processor.parameterDescriptors.find((d) => d.name === name)?.defaultValue ?? 0;
+    params[name] = new LiveAudioParam(sharedParams[name], scheduleParams[name], paramVersion, defaultValue);
   }
   return { handle: handleOf(node), params, native: false };
 }

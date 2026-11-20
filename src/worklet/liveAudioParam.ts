@@ -128,6 +128,9 @@ export function readCachedParams(
   return params;
 }
 
+// The most negative / positive single-precision float: an AudioParam's range when it has no narrower one.
+export const FLT_MAX = 3.4028234663852886e38;
+
 export class LiveAudioParam {
   // The source of truth for the schedule, on the JS thread. `schedule` is only written (published for the audio
   // thread), never read back: read-modify-writing shared state in one synchronous burst (setValueAtTime followed by
@@ -136,10 +139,14 @@ export class LiveAudioParam {
 
   // `base` and `schedule` must be the same Synchronizables the node's worklet callback captured, so the node creates
   // them and passes them in (AudioWorkletNode.ts, DynamicsCompressorNode.ts, FeedbackDelayNode.ts).
+  readonly minValue = -FLT_MAX;
+  readonly maxValue = FLT_MAX;
+
   constructor(
     private readonly base: Synchronizable<number>,
     readonly schedule: Synchronizable<string>,
-    private readonly version: ParamVersion
+    private readonly version: ParamVersion,
+    readonly defaultValue = 0
   ) {}
 
   get value(): number {
@@ -168,6 +175,26 @@ export class LiveAudioParam {
   exponentialRampToValueAtTime(value: number, endTime: number): this {
     this.pushEvent({ t: endTime, v: value, type: 'exponential' });
     return this;
+  }
+
+  // Approximation: jumps to the target at startTime (the schedule format has no exponential approach).
+  setTargetAtTime(target: number, startTime: number, _timeConstant?: number): this {
+    return this.setValueAtTime(target, startTime);
+  }
+
+  // Linear ramps through the curve's points, evenly spaced over `duration`.
+  setValueCurveAtTime(values: ArrayLike<number>, startTime: number, duration: number): this {
+    if (values.length === 0) return this;
+    this.pushEvent({ t: startTime, v: values[0], type: 'set' });
+    for (let i = 1; i < values.length; i++) {
+      this.pushEvent({ t: startTime + (duration * i) / (values.length - 1), v: values[i], type: 'linear' });
+    }
+    return this;
+  }
+
+  // Approximation: cancels from cancelTime without holding the value an in-progress ramp had reached.
+  cancelAndHoldAtTime(cancelTime: number): this {
+    return this.cancelScheduledValues(cancelTime);
   }
 
   cancelScheduledValues(cancelTime: number): this {
