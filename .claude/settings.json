@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/pinned-deps-check.mjs\"",
+            "timeout": 20,
+            "statusMessage": "Checking pinned dependencies"
+          }
+        ]
+      }
+    ]
+  }
+}

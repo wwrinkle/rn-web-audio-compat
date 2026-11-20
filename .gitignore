@@ -8,3 +8,6 @@ web-demo/dist/
 *.tgz
 .DS_Store
 native/.work/
+
+# Claude Code: last run of .claude/hooks/pinned-deps-check.mjs
+.claude/pinned-deps-checked.local

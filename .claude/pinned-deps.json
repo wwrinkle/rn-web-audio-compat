@@ -1,0 +1,22 @@
+{
+  "intervalDays": 3,
+  "packageJsons": ["package.json", "example/package.json"],
+  "npm": [
+    {
+      "name": "react-native-audio-api",
+      "why": "Patched: native/rnaa-<version>/rnaa.patch edits its C++ and TS sources, native/rnaa-<version>/files adds the kernel registry. apply-native.js refuses any other version.",
+      "alsoPinnedIn": [
+        "scripts/apply-native.js (SUPPORTED_RNAA)",
+        "scripts/rnaa-dev.sh (version in npm pack + paths)",
+        "native/rnaa-<version>/ (directory name)",
+        "scripts/kernel-parity/run.sh, src/kernels/nativeKernels.ts, src/__tests__/kernelParity.test.ts (paths)",
+        "scripts/gen-coverage.ts, conformance/rows.ts, COVERAGE.md, README.md, native/README.md, docs/FINDINGS.md, CLAUDE.md (docs)"
+      ]
+    },
+    {
+      "name": "react-native-worklets",
+      "why": "The patch's shared worklet runtime (src/AudioAPIModule/AudioAPIModule.ts) and every JS worklet processor run on it.",
+      "alsoPinnedIn": ["package.json peerDependencies (>= range)", "example/package.json"]
+    }
+  ]
+}
