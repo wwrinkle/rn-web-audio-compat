@@ -1,0 +1,25 @@
+{
+  "intervalDays": 3,
+  "packageJsons": ["package.json", "example/package.json"],
+  "npm": [
+    {
+      "name": "react-native-audio-api",
+      "why": "Not patched since 1.0: this library's native module (common/cpp/rnwac/) builds on its stable extension API (<audioapi/compatibility/StableAPI.h>). A new version can change that API or fix bugs this library works around in JS.",
+      "alsoPinnedIn": [
+        "package.json peerDependencies (^ range)",
+        "example/package.json (exact)",
+        "scripts/gen-coverage.ts, conformance/rows.ts, COVERAGE.md, README.md, native/README.md, docs/FINDINGS.md (docs)"
+      ]
+    },
+    {
+      "name": "react-native-audio-worklets",
+      "why": "Since react-native-audio-api 1.0 the JS worklet nodes live here; this library's JS processors (AudioWorkletNode) run on it.",
+      "alsoPinnedIn": ["package.json peerDependencies (^ range)", "example/package.json (exact)"]
+    },
+    {
+      "name": "react-native-worklets",
+      "why": "Every JS worklet processor runs on its runtime.",
+      "alsoPinnedIn": ["package.json peerDependencies (>= range)", "example/package.json"]
+    }
+  ]
+}

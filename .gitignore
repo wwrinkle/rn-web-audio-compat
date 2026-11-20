@@ -13,3 +13,6 @@ native/.work/
 /common/cpp/rnwac_ext/
 /android/build/
 /android/.cxx/
+
+# Claude Code: last run of .claude/hooks/pinned-deps-check.mjs
+.claude/pinned-deps-checked.local

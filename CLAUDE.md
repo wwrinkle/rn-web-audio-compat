@@ -20,3 +20,7 @@ thread, and [native/README.md](native/README.md) before touching the native modu
 - **Typecheck** with `npm run typecheck` (the example's tsconfig covers `src/` and `conformance/`).
 - **iOS:** run the `iOS example build` workflow (free: public repo), sideload the .ipa, read `[CONFORMANCE]` lines
   from the device log (e.g. `pymobiledevice3 syslog live`, started before opening the app).
+- **Pinned/patched upstream versions:** a SessionStart hook (`.claude/hooks/pinned-deps-check.mjs`, config in
+  `.claude/pinned-deps.json`) checks every 3 days that they are at npm `latest` (GitHub libraries: remote HEAD) and
+  reports what is behind; `/upgrade-pinned-deps` investigates and applies upgrades, asking before each step. The
+  same setup is in Sound_Walk, rn-web-audio-compat and rn-strudel; keep the script identical across the three.
