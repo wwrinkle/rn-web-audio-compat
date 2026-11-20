@@ -1553,15 +1553,19 @@ const convolver: CoverageRow[] = [
     toneVia: '`Convolver`, `Reverb` (set after connecting)',
     savings: 'Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10)',
     test: async (t) => {
+      // Connected and fed before it has a buffer, as Tone.js's Reverb does (this crashed up to 0.13.6): silence.
       const c = t.ctx.createConvolver();
       c.normalize = false;
+      const silent = await gainOf(t, c, 250);
+      t.expect(silent < 0.01, `no buffer: rms ${fmt(silent)}, expected silence`);
+      // Then the buffer arrives while connected.
       const ir = t.ctx.createBuffer(2, 128, t.ctx.sampleRate);
       ir.getChannelData(0)[0] = 0.5;
       ir.getChannelData(1)[0] = 0.5;
       c.buffer = ir;
       const rms = await gainOf(t, c, 350);
       t.expect(near(rms, 0.5, 0.08), `rms ${fmt(rms)}`);
-      return `impulse 0.5 -> ${fmt(rms)}`;
+      return `no buffer -> ${fmt(silent)}; impulse 0.5 -> ${fmt(rms)}`;
     },
   }),
   row({
