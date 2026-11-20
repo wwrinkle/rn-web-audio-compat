@@ -1,8 +1,8 @@
-#include <audioapi/dsp/rnwac/Kernels.h>
-#include <audioapi/dsp/rnwac/KernelUtil.h>
+#include <rnwac/Kernels.h>
+#include <rnwac/KernelUtil.h>
 
-#if __has_include(<audioapi/dsp/rnwac_ext/Extensions.h>)
-#include <audioapi/dsp/rnwac_ext/Extensions.h>
+#if __has_include(<rnwac_ext/Extensions.h>)
+#include <rnwac_ext/Extensions.h>
 #define RNWAC_HAS_EXTENSIONS 1
 #endif
 

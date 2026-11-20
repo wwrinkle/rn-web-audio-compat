@@ -4,10 +4,8 @@
 // Measured on a Pixel 10: ~155-190 us per 128-frame block for any length; a 0.6 s convolution reverb used ~78% of the
 // audio thread there.
 //
-// Wet signal only (like a ConvolverNode): mix it with the dry path yourself.
-//
-// No tail-time on react-native-audio-api: once every upstream source of a node stops, the node stops being processed and
-// the reverb tail is cut off. The node therefore keeps a silent ConstantSourceNode connected; disconnect() stops it.
+// Wet signal only (like a ConvolverNode): mix it with the dry path yourself. The kernel node declares a 30 s tail, so the
+// reverb keeps ringing after its input stops.
 
 import type { BaseAudioContext } from 'react-native-audio-api';
 import { createNativeKernelNode, type KernelParam } from '../kernels/nativeKernels';
@@ -39,20 +37,5 @@ export function createFdnReverbNode(context: BaseAudioContext, params: FdnReverb
     set('lpFreqEnd', p.lpFreqEnd);
   };
   node.setParams(params);
-
-  const keepAlive = context.createConstantSource();
-  keepAlive.offset.value = 0;
-  keepAlive.connect(node as unknown as Parameters<typeof keepAlive.connect>[0]);
-  keepAlive.start();
-  node.keepAlive = keepAlive;
-  const disconnect = node.disconnect.bind(node);
-  node.disconnect = (...a: unknown[]) => {
-    try {
-      keepAlive.stop();
-    } catch {
-      // already stopped
-    }
-    disconnect(...a);
-  };
   return node;
 }

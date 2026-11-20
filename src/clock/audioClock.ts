@@ -8,15 +8,17 @@
 //
 // Two tick sources, switchable live (`native` option / setNative()):
 // - native (default): a looping silent AudioBufferSourceNode whose native
-//   onPositionChanged event fires every ~10ms. The event is raised on the
+//   onpositionchanged event fires every ~10ms. The event is raised on the
 //   audio thread and delivered to the JS thread through the library's event
 //   dispatcher (CallInvoker::invokeAsync, the same mechanism scheduleOnRN
 //   uses), so no JS runs on the audio thread at all.
-// - worklet (the original): a silent JS WorkletSourceNode, i.e. Hermes on the
-//   audio thread every render block plus a Synchronizable read.
+// - worklet (the original): a silent JS WorkletSourceNode (react-native-audio-
+//   worklets), i.e. Hermes on the audio thread every render block plus a
+//   Synchronizable read.
 
 import type { AudioContext } from 'react-native-audio-api';
 import { createSynchronizable, scheduleOnRN } from 'react-native-worklets';
+import { createWorkletSourceNode } from '../native/nativeModule';
 
 const TICK_SECONDS = 0.01;
 const TICK_MS = 10;
@@ -63,7 +65,7 @@ export function createAudioClock(context: AudioContext, options: AudioClockOptio
     const notify = onTick;
     const schedule = scheduleOnRN;
 
-    const source = context.createWorkletSourceNode((_audioData, _frames, currentTime) => {
+    const source = createWorkletSourceNode(context, (_audioData, _channels, _frames, currentTime) => {
       'worklet';
       try {
         const bucket = Math.floor(currentTime / tickSeconds);
@@ -74,7 +76,7 @@ export function createAudioClock(context: AudioContext, options: AudioClockOptio
       } catch {
         // never let an exception escape the audio callback
       }
-    }, 'AudioRuntime');
+    });
     source.connect(context.destination);
     source.start();
     return {
@@ -90,13 +92,13 @@ export function createAudioClock(context: AudioContext, options: AudioClockOptio
     const source = context.createBufferSource();
     source.buffer = silence;
     source.loop = true;
-    source.onPositionChangedInterval = TICK_MS;
-    source.onPositionChanged = onTick;
+    source.onpositionchangedInterval = TICK_MS;
+    source.onpositionchanged = onTick;
     source.connect(context.destination);
     source.start();
     return {
       stop: () => {
-        source.onPositionChanged = null;
+        source.onpositionchanged = null;
         source.stop();
         source.disconnect();
       },

@@ -1,59 +1,29 @@
 #!/usr/bin/env node
-// Applies rn-web-audio-compat's native changes to the app's installed react-native-audio-api:
-//   1. copies the new source files in native/rnaa-<version>/files/ (kernel registry, host objects), and
-//   2. applies native/rnaa-<version>/rnaa.patch (edits to existing library files).
-// Idempotent: already-applied parts are skipped, so it is safe to run from this package's postinstall AND from the
-// app's own postinstall. It also takes a lock: npm runs different packages' install scripts in parallel, and
-// rn-strudel's step applies this one too (found when both ran at once and one saw the other's half-applied files) (recommended: the app's runs last, after every package is installed, and also after an install
-// that replaced only react-native-audio-api). After it changes anything, rebuild the native app.
+// rn-web-audio-compat no longer patches react-native-audio-api (since 1.0 it is a native module of its own, built on
+// react-native-audio-api's stable extension API; see native/README.md). The one install-time step left is for extension
+// libraries: copying their C++ kernels into this package's common/cpp/rnwac_ext/, where the CMakeLists.txt and podspec
+// globs compile them into this module. Kernels.cpp registers them through rnwac_ext::registerKernels().
 //
-// Other libraries extend the native side by adding NEW files only (see native/README.md), via applyExtensionFiles().
-//
-// Usage: npx rn-web-audio-compat-apply [--rnaa <path to react-native-audio-api>]
+// Only NEW files: an extension never edits this library's own files. Idempotent, and it takes a lock because npm runs
+// different packages' install scripts in parallel. Rebuild the native app after it changes anything.
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 
-const SUPPORTED_RNAA = '0.13.6';
-const TAG = '[rn-web-audio-compat]';
+const EXT_DIR = path.resolve(__dirname, '..', 'common', 'cpp', 'rnwac_ext');
 
-function findRnaaDir(explicit) {
-  if (explicit) return path.resolve(explicit);
-  const bases = [process.env.INIT_CWD, process.cwd(), path.resolve(__dirname, '..')].filter(Boolean);
-  for (const base of bases) {
-    try {
-      return path.dirname(require.resolve('react-native-audio-api/package.json', { paths: [base] }));
-    } catch {
-      // try the next base
-    }
-  }
-  return null;
-}
-
-// Runs git apply against files in `dir`. GIT_CEILING_DIRECTORIES keeps git from discovering an enclosing repository
-// (e.g. the app's), which would otherwise make it resolve patch paths from that repo's root and silently skip them.
-function gitApply(dir, patchFile, args) {
-  const env = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(dir) };
-  delete env.GIT_DIR;
-  delete env.GIT_WORK_TREE;
-  const res = spawnSync('git', ['apply', '-p1', ...args, patchFile], { cwd: dir, env, encoding: 'utf8' });
-  if (res.error) throw new Error(`${TAG} could not run git (needed to apply the patch): ${res.error.message}`);
-  return res;
-}
-
-// Copies every file under `filesDir` into `rnaaDir` at the same relative path. Returns the number changed.
-function copyTree(filesDir, rnaaDir) {
+// Copies every file under `fromDir` into `toDir` at the same relative path. Returns the number changed.
+function copyTree(fromDir, toDir) {
   let changed = 0;
   const walk = (rel) => {
-    for (const name of fs.readdirSync(path.join(filesDir, rel))) {
+    for (const name of fs.readdirSync(path.join(fromDir, rel))) {
       const r = path.join(rel, name);
-      const src = path.join(filesDir, r);
+      const src = path.join(fromDir, r);
       if (fs.statSync(src).isDirectory()) {
         walk(r);
         continue;
       }
-      const dst = path.join(rnaaDir, r);
+      const dst = path.join(toDir, r);
       const next = fs.readFileSync(src);
       if (fs.existsSync(dst) && Buffer.compare(fs.readFileSync(dst), next) === 0) continue;
       fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -66,8 +36,9 @@ function copyTree(filesDir, rnaaDir) {
 }
 
 // Cross-process lock (mkdir is atomic). Waits up to 2 minutes; a lock older than that is treated as stale.
-function withLock(rnaaDir, fn) {
-  const lockDir = path.join(rnaaDir, '.rn-web-audio-compat.lock');
+function withLock(fn) {
+  fs.mkdirSync(path.dirname(EXT_DIR), { recursive: true });
+  const lockDir = `${EXT_DIR}.lock`;
   const deadline = Date.now() + 120000;
   const pause = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
@@ -80,13 +51,13 @@ function withLock(rnaaDir, fn) {
       try {
         age = Date.now() - fs.statSync(lockDir).mtimeMs;
       } catch {
-        continue; // released between mkdir and stat
+        continue;
       }
       if (age > 120000) {
         fs.rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
-      if (Date.now() > deadline) throw new Error(`${TAG} timed out waiting for ${lockDir}`);
+      if (Date.now() > deadline) throw new Error(`[rn-web-audio-compat] timed out waiting for ${lockDir}`);
       Atomics.wait(pause, 0, 0, 100);
     }
   }
@@ -97,74 +68,11 @@ function withLock(rnaaDir, fn) {
   }
 }
 
-function checkVersion(rnaaDir, owner) {
-  const version = JSON.parse(fs.readFileSync(path.join(rnaaDir, 'package.json'), 'utf8')).version;
-  if (version !== SUPPORTED_RNAA) {
-    throw new Error(
-      `${owner} supports react-native-audio-api ${SUPPORTED_RNAA} exactly, found ${version} at ${rnaaDir}. ` +
-        `Install react-native-audio-api@${SUPPORTED_RNAA}.`
-    );
-  }
+// For extension libraries: copies the C++ files in `filesDir` (an Extensions.h declaring rnwac_ext::registerKernels(),
+// plus its .cpp files) into this package's common/cpp/rnwac_ext/. Returns { extDir, copied }.
+function applyExtensionFiles(owner, filesDir) {
+  if (!fs.existsSync(filesDir)) throw new Error(`[${owner}] extension kernel directory not found: ${filesDir}`);
+  return withLock(() => ({ extDir: EXT_DIR, copied: copyTree(filesDir, EXT_DIR) }));
 }
 
-function applyCompat(rnaaDir) {
-  return withLock(rnaaDir, () => applyCompatLocked(rnaaDir));
-}
-
-function applyCompatLocked(rnaaDir) {
-  checkVersion(rnaaDir, 'rn-web-audio-compat');
-  const nativeDir = path.resolve(__dirname, '..', 'native', `rnaa-${SUPPORTED_RNAA}`);
-  const copied = copyTree(path.join(nativeDir, 'files'), rnaaDir);
-  const patchFile = path.join(nativeDir, 'rnaa.patch');
-  let patched = 'already applied';
-  if (gitApply(rnaaDir, patchFile, ['--check', '--reverse']).status !== 0) {
-    const check = gitApply(rnaaDir, patchFile, ['--check']);
-    if (check.status !== 0) {
-      throw new Error(
-        `${TAG} rnaa.patch does not apply to ${rnaaDir} (files modified by something else?):\n${check.stderr}` +
-          'Reinstall react-native-audio-api (e.g. delete it from node_modules and npm install), then run this again.'
-      );
-    }
-    const res = gitApply(rnaaDir, patchFile, []);
-    if (res.status !== 0) throw new Error(`${TAG} git apply failed:\n${res.stderr}`);
-    patched = 'applied';
-  }
-  return { copied, patched };
-}
-
-// For extension libraries: ensure the compat patch is in place, then copy their own new files (never edits).
-function applyExtensionFiles(owner, filesDir, rnaaDirArg) {
-  const rnaaDir = findRnaaDir(rnaaDirArg);
-  if (!rnaaDir) {
-    console.warn(`[${owner}] react-native-audio-api not found; skipping native setup.`);
-    return null;
-  }
-  return withLock(rnaaDir, () => {
-    const compat = applyCompatLocked(rnaaDir);
-    checkVersion(rnaaDir, owner);
-    const copied = copyTree(filesDir, rnaaDir);
-    return { rnaaDir, compat, copied };
-  });
-}
-
-function main() {
-  const i = process.argv.indexOf('--rnaa');
-  const rnaaDir = findRnaaDir(i > 0 ? process.argv[i + 1] : undefined);
-  if (!rnaaDir) {
-    console.warn(`${TAG} react-native-audio-api not found; skipping native setup.`);
-    return;
-  }
-  const { copied, patched } = applyCompat(rnaaDir);
-  console.log(`${TAG} ${rnaaDir}: patch ${patched}, ${copied} file(s) copied.` + (copied || patched === 'applied' ? ' Rebuild the native app.' : ''));
-}
-
-module.exports = { applyCompat, applyExtensionFiles, findRnaaDir, SUPPORTED_RNAA };
-
-if (require.main === module) {
-  try {
-    main();
-  } catch (err) {
-    console.error(err.message || err);
-    process.exit(1);
-  }
-}
+module.exports = { applyExtensionFiles, EXT_DIR };

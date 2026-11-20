@@ -1,87 +1,92 @@
-// Native-side diagnostics exposed by the react-native-audio-api patch (BaseAudioContext.getKernelTimings /
-// resetKernelTimings): whole-graph render cost ("audio load") and per-kernel cost, and which C++ kernels exist.
+// Native-side diagnostics from this library's native module (common/cpp/rnwac): which C++ kernels exist in this build,
+// and per-kernel cost on the audio thread.
+//
+// Whole-graph render cost (the old "audio load", entry id 0) is gone: measuring it meant patching react-native-audio-
+// api's AudioDestinationNode, and since 1.0 this library uses its stable extension API instead of patches. AudioLoad
+// keeps those fields as null and adds kernelLoadPct (time spent in this library's kernels / real time).
 
-export interface TimingEntry {
-  id: number;
-  name: string;
-  count: number;
-  avgUs: number;
-  maxUs: number;
-  // Only on entry id 0 (the whole render callback).
-  frames?: number;
-  loadPct?: number;
-  maxLoadPct?: number;
-  overBudget?: number;
+import {
+  ensureNativeModule,
+  nativeKernelTimings,
+  resetNativeKernelTimings,
+  type NativeKernelTiming,
+} from '../native/nativeModule';
+
+export type TimingEntry = NativeKernelTiming;
+
+// The `context` arguments below are kept for API compatibility; timings are process-wide.
+
+export function isNativeModuleInstalled(_context?: unknown): boolean {
+  return ensureNativeModule();
 }
 
-interface TimingContext {
-  getKernelTimings?: () => TimingEntry[];
-  resetKernelTimings?: () => void;
+/** @deprecated Since react-native-audio-api 1.0 there is no patch; use isNativeModuleInstalled. */
+export const isNativePatchInstalled = isNativeModuleInstalled;
+
+export function getNativeTimings(_context?: unknown): TimingEntry[] {
+  return nativeKernelTimings();
 }
 
-export function isNativePatchInstalled(context: unknown): boolean {
-  return typeof (context as TimingContext).getKernelTimings === 'function';
-}
-
-export function getNativeTimings(context: unknown): TimingEntry[] {
-  const fn = (context as TimingContext).getKernelTimings;
-  return fn ? fn.call(context) : [];
-}
-
-export function resetNativeTimings(context: unknown): void {
-  (context as TimingContext).resetKernelTimings?.call(context);
+export function resetNativeTimings(_context?: unknown): void {
+  resetNativeKernelTimings();
 }
 
 // Names of the C++ kernels compiled into this build (built-ins plus any extension library's).
-export function registeredNativeKernels(context: unknown): string[] {
-  return getNativeTimings(context)
-    .filter((e) => e.id !== 0)
-    .map((e) => e.name);
+export function registeredNativeKernels(_context?: unknown): string[] {
+  return nativeKernelTimings().map((e) => e.name);
 }
 
-// Throws a clear error if the native patch or any of the named kernels is missing (instead of silently producing
+// Throws a clear error if the native module or any of the named kernels is missing (instead of silently producing
 // silence later). Call once at startup.
-export function assertNativeKernels(context: unknown, names: string[], owner = 'rn-web-audio-compat'): void {
-  if (!isNativePatchInstalled(context)) {
+export function assertNativeKernels(_context: unknown, names: string[], owner = 'rn-web-audio-compat'): void {
+  if (!ensureNativeModule()) {
     throw new Error(
-      `${owner}: react-native-audio-api is not patched (getKernelTimings missing). Run the apply-native step ` +
-        '(npx rn-web-audio-compat-apply) and rebuild the native app.'
+      `${owner}: rn-web-audio-compat's native module is not in this build (it needs the New Architecture). ` +
+        'Rebuild the native app.'
     );
   }
-  const have = new Set(registeredNativeKernels(context));
+  const have = new Set(registeredNativeKernels());
   const missing = names.filter((n) => !have.has(n));
   if (missing.length) {
-    throw new Error(`${owner}: native kernels missing from this build: ${missing.join(', ')}. Re-run the apply step and rebuild.`);
+    throw new Error(
+      `${owner}: native kernels missing from this build: ${missing.join(', ')}. Re-run the extension's install step ` +
+        '(npm install) and rebuild.'
+    );
   }
 }
 
 export interface AudioLoad {
-  loadPct: number; // average render time / real time of the rendered audio
-  maxLoadPct: number; // worst single callback
-  overBudget: number; // callbacks that took longer than the audio they produced
-  usPer128Frames: number;
-  callbacks: number;
+  kernelLoadPct: number; // time in this library's kernels / real time of the window
+  // Whole-graph figures; no longer measurable without patching react-native-audio-api (see the header comment).
+  loadPct: null;
+  maxLoadPct: null;
+  overBudget: null;
+  usPer128Frames: null;
+  callbacks: null;
   kernels: TimingEntry[]; // kernels that ran in the window
 }
 
-// Measures the audio thread over a window. `sleep` must keep working with the screen off if you measure then (use an
+// Measures kernel cost over a window. `sleep` must keep working with the screen off if you measure then (use an
 // AudioClock-based sleep on Android, not setTimeout).
 export async function measureAudioLoad(
-  context: unknown,
+  _context: unknown,
   seconds: number,
   sleep: (ms: number) => Promise<void>
 ): Promise<AudioLoad | null> {
-  resetNativeTimings(context);
+  if (!ensureNativeModule()) return null;
+  resetNativeKernelTimings();
+  const start = Date.now();
   await sleep(seconds * 1000);
-  const entries = getNativeTimings(context);
-  const render = entries.find((e) => e.id === 0);
-  if (!render || !render.frames) return null;
+  const elapsedUs = (Date.now() - start) * 1000;
+  const kernels = nativeKernelTimings().filter((e) => e.count > 0);
+  const kernelUs = kernels.reduce((sum, e) => sum + e.avgUs * e.count, 0);
   return {
-    loadPct: render.loadPct ?? 0,
-    maxLoadPct: render.maxLoadPct ?? 0,
-    overBudget: render.overBudget ?? 0,
-    usPer128Frames: ((render.avgUs * render.count) / render.frames) * 128,
-    callbacks: render.count,
-    kernels: entries.filter((e) => e.id !== 0 && e.count > 0),
+    kernelLoadPct: elapsedUs > 0 ? (kernelUs / elapsedUs) * 100 : 0,
+    loadPct: null,
+    maxLoadPct: null,
+    overBudget: null,
+    usPer128Frames: null,
+    callbacks: null,
+    kernels,
   };
 }

@@ -8,3 +8,8 @@ web-demo/dist/
 *.tgz
 .DS_Store
 native/.work/
+
+# Extension kernels copied in by another package (e.g. rn-strudel) at install time
+/common/cpp/rnwac_ext/
+/android/build/
+/android/.cxx/

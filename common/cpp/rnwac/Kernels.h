@@ -1,16 +1,17 @@
 #pragma once
 
-// rn-web-audio-compat: native (C++) effect kernels. A patched WorkletProcessingNode (effects) or WorkletSourceNode
-// (sources) can run a registered kernel by id instead of calling a JS worklet, so nothing runs in Hermes on the audio
-// thread. Deliberately free of any react-native-audio-api types (plain pointers only).
+// rn-web-audio-compat: native (C++) effect kernels. KernelEffectNode / KernelSourceNode (KernelNodes.h, this library's
+// own nodes on react-native-audio-api's stable extension API) run a registered kernel by id, so nothing runs in Hermes
+// on the audio thread. Deliberately free of any react-native-audio-api types (plain pointers only).
 //
 // Params are doubles (JS numbers), NOT floats: 32-bit params broke bit-exactness (e.g. floor(0.02 * 48000) became 959).
 // They arrive as a flat array: the JS processor's parameterDescriptors in order, then any "extra" params the JS kernel
 // entry appends (documented per kernel).
 //
 // Built-in kernels (this library) use ids 1..99. Extension kernels (another library, e.g. rn-strudel) are added as NEW
-// files under dsp/rnwac_ext/ (never by editing these files): if <audioapi/dsp/rnwac_ext/Extensions.h> exists at build
-// time, Kernels.cpp calls rnwac_ext::registerKernels() when the registry is first used. Extensions use ids 100..255.
+// files under common/cpp/rnwac_ext/ of this package (never by editing these files): if <rnwac_ext/Extensions.h> exists
+// at build time, Kernels.cpp calls rnwac_ext::registerKernels() when the registry is first used. Extensions use ids
+// 100..255.
 
 #include <atomic>
 #include <cstdint>
@@ -31,10 +32,10 @@ enum BuiltinKernelId : int {
   kFdnReverb = 3,
 };
 
-// Per-kernel-id on-device cost tracking (real audio-thread wall time around each runKernel call, see the
-// call sites in WorkletProcessingNode.cpp / WorkletSourceNode.cpp). Global rather than per-node: the render thread
+// Per-kernel-id on-device cost tracking (real audio-thread wall time around each runKernel call, see
+// KernelNodes.cpp). Global rather than per-node: the render thread
 // processes the whole graph sequentially, so plain atomics (no contention in practice) avoid any locking on the
-// audio thread. Read via BaseAudioContextHostObject's getKernelTimings()/resetKernelTimings() JSI functions.
+// audio thread. Read via the __rnwacKernelTimings / __rnwacResetKernelTimings JSI globals (Installer.cpp).
 struct KernelTiming {
   std::atomic<uint64_t> totalNs{0};
   std::atomic<uint64_t> count{0};
@@ -55,54 +56,12 @@ inline void recordKernelTiming(int id, uint64_t ns) {
   }
 }
 
-// Whole-graph render cost (AudioDestinationNode::renderAudio, i.e. everything the audio thread does per
-// device callback: event processing, graph pre-processing, every node incl. JS worklets). Reported as entry id 0 of
-// getKernelTimings(). Load = render time / real time of the rendered frames; maxLoad is the worst single callback.
-struct RenderTiming {
-  std::atomic<uint64_t> totalNs{0};
-  std::atomic<uint64_t> count{0};
-  std::atomic<uint64_t> maxNs{0};
-  std::atomic<uint64_t> frames{0};
-  std::atomic<uint64_t> maxLoadPermille{0};
-  std::atomic<uint64_t> overBudget{0}; // callbacks that took longer than the audio they produced
-};
-
-inline RenderTiming g_renderTiming;
-
-inline void recordRenderTiming(uint64_t ns, int frames, float sampleRate) {
-  if (frames <= 0 || sampleRate <= 0) {
-    return;
-  }
-  auto &t = g_renderTiming;
-  t.totalNs.fetch_add(ns, std::memory_order_relaxed);
-  t.count.fetch_add(1, std::memory_order_relaxed);
-  t.frames.fetch_add(static_cast<uint64_t>(frames), std::memory_order_relaxed);
-  uint64_t prevMax = t.maxNs.load(std::memory_order_relaxed);
-  while (ns > prevMax && !t.maxNs.compare_exchange_weak(prevMax, ns, std::memory_order_relaxed)) {
-  }
-  double budgetNs = static_cast<double>(frames) / static_cast<double>(sampleRate) * 1e9;
-  auto loadPermille = static_cast<uint64_t>(static_cast<double>(ns) / budgetNs * 1000.0);
-  uint64_t prevLoad = t.maxLoadPermille.load(std::memory_order_relaxed);
-  while (loadPermille > prevLoad &&
-         !t.maxLoadPermille.compare_exchange_weak(prevLoad, loadPermille, std::memory_order_relaxed)) {
-  }
-  if (loadPermille >= 1000) {
-    t.overBudget.fetch_add(1, std::memory_order_relaxed);
-  }
-}
-
 inline void resetKernelTiming() {
   for (auto &t : g_kernelTiming) {
     t.totalNs.store(0, std::memory_order_relaxed);
     t.count.store(0, std::memory_order_relaxed);
     t.maxNs.store(0, std::memory_order_relaxed);
   }
-  g_renderTiming.totalNs.store(0, std::memory_order_relaxed);
-  g_renderTiming.count.store(0, std::memory_order_relaxed);
-  g_renderTiming.maxNs.store(0, std::memory_order_relaxed);
-  g_renderTiming.frames.store(0, std::memory_order_relaxed);
-  g_renderTiming.maxLoadPermille.store(0, std::memory_order_relaxed);
-  g_renderTiming.overBudget.store(0, std::memory_order_relaxed);
 }
 
 // Per-node scratch state for stateful kernels (zero-initialised).

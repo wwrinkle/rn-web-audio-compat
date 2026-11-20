@@ -21,28 +21,28 @@ nothing here is Strudel-specific.
   each. 71% of the whole API, 92% of what Strudel uses.
 - **[docs/FINDINGS.md](docs/FINDINGS.md):** everything that behaves differently from a browser, and why. Worth reading
   if you run Web Audio code on React Native, with or without this library.
-- **[native/README.md](native/README.md):** the patch this library applies to react-native-audio-api, and how to add
-  your own C++ DSP kernels.
+- **[native/README.md](native/README.md):** this library's native module (C++ kernel nodes on react-native-audio-api's
+  stable extension API; no patches), and how to add your own C++ DSP kernels.
 
 ## Status
 
+- **react-native-audio-api 1.0 port (branch `rnaa-1.0`): not yet verified on a device.** The figures below are for the
+  0.13.6 version on `main`.
 - **Android:** 109/109 conformance tests pass on a Pixel 10 and the emulator, the same as in Chrome.
 - **iOS:** 109/109 on an iPhone 13 (iOS 26.5), built by this repo's `iOS example build` workflow.
 - **Distribution:** not published to npm. Install from GitHub.
-- **react-native-audio-api version:** requires **0.13.6** exactly, because the native patch is version-specific.
+- **react-native-audio-api version:** 1.0.1 or later 1.x. Nothing in it is patched: this library's native module uses
+  its stable C++ extension API.
 
 ## Install
 
 ```sh
-npm install github:wwrinkle/rn-web-audio-compat react-native-audio-api@0.13.6 react-native-worklets
+npm install github:wwrinkle/rn-web-audio-compat react-native-audio-api@^1.0.1 react-native-audio-worklets react-native-worklets
 ```
 
-This needs a development build; Expo Go won't work. The `postinstall` step patches `node_modules/react-native-audio-api`
-(see [native/README.md](native/README.md)). Also add it to your app's own `postinstall`, so it re-runs after any install:
-
-```json
-"scripts": { "postinstall": "rn-web-audio-compat-apply" }
-```
+This needs a development build with the New Architecture; Expo Go won't work. The library is an autolinked native
+module, so rebuild the native app after installing it. react-native-audio-worklets provides the audio-thread JS worklet
+nodes that JS processors run on.
 
 Then rebuild the native app.
 
@@ -105,7 +105,7 @@ with `registerNativeProcessor`; the JS version stays as the fallback and the spe
 | `FeedbackDelayNode` | Delay with feedback in one node (C++). The graph rejects the usual `DelayNode` cycle |
 | `createAudioClock(ctx)` | `setInterval` / `clearInterval` clocked by the audio thread. On Android, JS timers stop when the screen locks |
 | `startBackgroundPlayback()` / `stopBackgroundPlayback()` | The Android playback notification and permission that keep audio running under screen lock |
-| `measureAudioLoad(ctx, seconds, sleep)`, `assertNativeKernels(ctx, names)` | Audio-thread load measurement; a startup check that the native patch is built in |
+| `measureAudioLoad(ctx, seconds, sleep)`, `assertNativeKernels(ctx, names)` | Audio-thread load measurement; a startup check that the native module and kernels are built in |
 | `setNativeProcessorsEnabled(false)` | A/B switch: run the JS processors instead of the native ones |
 
 ## Demos and tests

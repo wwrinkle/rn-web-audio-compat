@@ -6,15 +6,15 @@
 //   const ctx = new AudioContext();
 //   installWebAudioCompat(ctx);                        // AudioWorklet + fan-out-safe create*() on this context
 //
-// See README.md for what is covered (COVERAGE.md has the member-by-member table) and native/README.md for the
-// react-native-audio-api patch this library applies.
+// See README.md for what is covered (COVERAGE.md has the member-by-member table) and native/README.md for this
+// library's native module (C++ kernel nodes on react-native-audio-api's stable extension API; no patches).
 
 export { installWebAudioCompat, AudioWorkletNode, registerWorkletProcessor, registerNativeProcessor, setNativeProcessorsEnabled, areNativeProcessorsEnabled, hasWorkletProcessor } from './worklet/AudioWorkletNode';
 export type { AudioWorkletNodeOptions, NativeProcessorFactory } from './worklet/AudioWorkletNode';
 export type { WorkletProcessorModule, ParamDescriptor, ParamValues, ProcessBlock, ProcessorKind } from './worklet/types';
 export { LiveAudioParam } from './worklet/liveAudioParam';
 
-export { registerKernel, getKernelEntry, kernelEntries, buildKernelParams, createNativeKernelNode, attachKernel } from './kernels/nativeKernels';
+export { registerKernel, getKernelEntry, kernelEntries, buildKernelParams, createNativeKernelNode, createKernelNode, kernelParameters } from './kernels/nativeKernels';
 export type { KernelEntry, KernelParam } from './kernels/nativeKernels';
 
 export { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
@@ -33,6 +33,7 @@ export { startBackgroundPlayback, stopBackgroundPlayback } from './playback/back
 export type { PlaybackNotificationInfo } from './playback/backgroundPlayback';
 
 export {
+  isNativeModuleInstalled,
   isNativePatchInstalled,
   getNativeTimings,
   resetNativeTimings,

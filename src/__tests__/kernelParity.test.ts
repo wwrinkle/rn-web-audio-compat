@@ -4,7 +4,7 @@ import { compressorProcessor } from '../processors/compressorProcessor';
 import { feedbackDelayProcessor } from '../processors/feedbackDelayProcessor';
 import { fdnReverbProcessor } from '../processors/fdnReverbProcessor';
 
-// Kernel ids: rnwac::BuiltinKernelId (native/rnaa-0.13.6/files/.../dsp/rnwac/Kernels.h).
+// Kernel ids: rnwac::BuiltinKernelId (common/cpp/rnwac/Kernels.h).
 const cases: ParityCase[] = [
   { name: 'delay_a', kernelId: 1, module: feedbackDelayProcessor, values: { delayTime: 0.02, feedback: 0.6, wet: 1 }, extraParams: [2] },
   { name: 'compressor_a', kernelId: 2, module: compressorProcessor, values: { threshold: -30, knee: 10, ratio: 8 } },

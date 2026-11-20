@@ -1,51 +1,60 @@
-# Native changes to react-native-audio-api
+# rn-web-audio-compat's native module
 
-rn-web-audio-compat needs a few changes to react-native-audio-api's own source: crash and API fixes, and a way to run
-C++ DSP kernels inside its graph. The library's documented C++ extension API only exists in its nightly builds, so we
-patch the stable release instead. This is pinned to **react-native-audio-api 0.13.6**: the install step refuses other
-versions.
+rn-web-audio-compat runs C++ DSP kernels inside react-native-audio-api's audio graph, so effects like the feedback
+delay, compressor and FDN reverb cost no JS on the audio thread. Since react-native-audio-api 1.0 this is a native
+module of its own, built on react-native-audio-api's **stable C++ extension API**
+(`<audioapi/compatibility/StableAPI.h>`). Nothing in react-native-audio-api is patched.
 
-## How it's applied
+Up to 0.13.6 the same kernels ran through a patch (`native/rnaa-0.13.6/rnaa.patch`, 21 files) that taught
+react-native-audio-api's worklet nodes a `setKernel()` mode, plus crash and API fixes. 1.0 broke 20 of those 21 files,
+which is why the library moved off patching entirely. The patch is in git history (last commit on 0.13.6: 2632765).
 
-`scripts/apply-native.js` runs from this package's `postinstall`. You can also run it yourself as `npx rn-web-audio-compat-apply`.
-It works on the installed `node_modules/react-native-audio-api` in two steps:
+**Rule: keep it that way.** If something can't be done from outside react-native-audio-api, first try this module (our
+own nodes and host objects), then our JS. Report upstream bugs upstream. A patch is a last resort.
 
-1. It copies the new files in `rnaa-0.13.6/files/`.
-2. It applies `rnaa-0.13.6/rnaa.patch` (edits to existing files) with `git apply`.
+## Layout
 
-The script is idempotent: parts that are already applied are skipped, so it's safe to run more than once. It also takes
-a lock, because npm runs different packages' install scripts in parallel. Rebuild the native app after it changes
-anything. On Android, also delete `android/app/build/generated/assets/react`: Gradle doesn't notice changes inside
-`node_modules` (see [docs/FINDINGS.md](../docs/FINDINGS.md#development-gotchas)).
+| Path | What |
+| --- | --- |
+| `common/cpp/rnwac/Kernels.{h,cpp}`, `KernelUtil.h` | The kernels and their registry. Plain C++, no react-native-audio-api types |
+| `common/cpp/rnwac/KernelNodes.{h,cpp}` | `KernelEffectNode` (subclasses `audioapi::AudioNode`) and `KernelSourceNode` (`audioapi::AudioScheduledSourceNode`) |
+| `common/cpp/rnwac/KernelNodeHostObjects.{h,cpp}` | Their JS handles: react-native-audio-api's node host objects plus `setKernelParam(i, v)` and `kernelId` |
+| `common/cpp/rnwac/Installer.{h,cpp}` | The `__rnwac*` JSI globals (create nodes, kernel timings) |
+| `common/cpp/rnwac/NativeWebAudioCompatModule.*`, `src/specs/` | The pure C++ TurboModule whose `install()` puts those globals on the runtime |
+| `CMakeLists.txt`, `react-native.config.js`, `android/` | Android: autolinked C++ module, links `react-native-audio-api::react-native-audio-api` via Prefab |
+| `RNWebAudioCompat.podspec`, `ios/rnwac/` | iOS: pod depending on `RNAudioAPI`, module provider |
+| `common/cpp/rnwac_ext/` (git-ignored) | Extension kernels another package copies in (rn-strudel) |
 
-Recommended: run it from your app's own `postinstall` too. That hook runs after every package is installed, including
-after an install that replaced only react-native-audio-api:
+It's modeled on react-native-audio-worklets, upstream's reference extension (react-native-audio-api 1.0 moved the JS
+worklet nodes into that package; this library's JS processors run on it). Only `StableAPI.h` may be included from
+react-native-audio-api; anything else is internal and may change without notice.
 
-```json
-"scripts": { "postinstall": "rn-web-audio-compat-apply" }
-```
+Requires the React Native New Architecture.
 
-The C++ is shared by iOS and Android. Android's CMake and iOS's podspec pick up new files through their existing globs.
+## How the nodes behave
 
-## What the patch changes
+- **Effects** are always stereo: channelCountMode `explicit`, 2 channels, so the graph up-mixes a mono input (the 0.13
+  patch duplicated the channel by hand).
+- **In-place buffers:** react-native-audio-api 1.0 processes a node in place (input buffer = output buffer). Kernels need
+  `out` not to alias `in`, so `KernelRunner` copies the input into per-node scratch first.
+- **Tails:** an effect created with `tailSeconds > 0` declares `requiresTailProcessing`, so the graph keeps rendering it
+  after its input goes silent. 'feedback-delay' and 'fdn-reverb' use 30 s. That replaces the silent keep-alive source
+  the 0.13 nodes needed. (JS worklet nodes still have no tail-time and still use the keep-alive.)
+- **Param changes** from JS (`setKernelParam`) are queued with `scheduleAudioEvent` and applied on the audio thread at the
+  next render quantum. The queued event holds the node's graph handle, so the node can't be freed before it runs.
+- **Sources** follow the same playback bookkeeping as react-native-audio-worklets' `WorkletSourceNode`
+  (`updatePlaybackInfo`, `handleStopScheduled`).
 
-| Area | Files | Why |
-| --- | --- | --- |
-| Native kernels | `core/effects/WorkletProcessingNode.*`, `core/sources/WorkletSourceNode.*`, their host objects, `src/core/Worklet*Node.ts`, `src/jsi-interfaces.ts`; new `dsp/rnwac/*` | `setKernel(id)` / `setKernelParam(i, v)`: the node runs a C++ kernel instead of calling JS on the audio thread |
-| Timing | `core/destinations/AudioDestinationNode.cpp`, `BaseAudioContextHostObject.*` | Per-kernel and whole-render-callback timing (`getKernelTimings()`), used by `measureAudioLoad()`, plus the list of registered kernels |
-| Shared worklet runtime | `src/AudioAPIModule/AudioAPIModule.ts` | One runtime for every context. A runtime per context crashed during garbage collection after `close()` |
-| Runtime lock | `BaseAudioContextHostObject.cpp` | Audio-runtime worklet jobs raced with JS-thread node creation (Hermes crash) |
-| Dangling param inputs | `core/AudioNode.cpp`, `core/utils/AudioGraphManager.cpp` | A freed node stayed in the input list of an `AudioParam` it was connected to |
-| Convolver | `core/effects/ConvolverNode.cpp` | Crash when rendering before a buffer is set |
-| Android buffer | `android/.../AudioPlayer.cpp` | Maximum Oboe buffer: the default one underruns with JS callbacks |
-| API fixes | `src/core/AudioParam.ts`, `WaveShaperNode.ts`, `PeriodicWave.ts`, `BaseAudioContext.ts` | Read-after-write for `AudioParam.value`; `WaveShaperNode` curve; `PeriodicWave` from plain arrays |
+## Diagnostics
 
-Details of each problem are in [docs/FINDINGS.md](../docs/FINDINGS.md).
+`getNativeTimings()` returns per-kernel cost (count, average and max microseconds per block) for every registered
+kernel, and `registeredNativeKernels()` their names. The whole-render-callback "audio load" of 0.13 (measured in a
+patched `AudioDestinationNode`) can't be measured from outside, so `measureAudioLoad()` now reports `kernelLoadPct`
+(time in this library's kernels / real time) and `null` for the whole-graph fields.
 
 ## Native kernels
 
-A kernel is a plain C++ function with no react-native-audio-api types
-(`rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.h`):
+A kernel is a plain C++ function with no react-native-audio-api types (`common/cpp/rnwac/Kernels.h`):
 
 ```cpp
 void kernel(const float *const *in, float *const *out, int channels, int frames,
@@ -68,7 +77,7 @@ Built-in kernels, ids 1-99:
 
 Each kernel has a JS processor that serves as its spec: `src/processors/*`.
 
-On the JS side, `registerKernel(name, { id, kind, module, extraParams })` describes a kernel, and
+On the JS side, `registerKernel(name, { id, kind, module, extraParams, tailSeconds })` describes a kernel, and
 `createNativeKernelNode(ctx, name)` gives you a node running it. To have `new AudioWorkletNode(ctx, name)` use the
 kernel, which is how unmodified browser code gets it, register both versions:
 
@@ -79,21 +88,19 @@ registerNativeProcessor(name, (ctx, opts) => createNativeKernelNode(ctx, name, o
 
 ### Adding kernels from another package
 
-Another package can add kernels without editing any file this patch touches, so both can be applied in any order and
-re-applied safely. (rn-strudel does it this way.)
+rn-strudel does it this way, without editing any file of this library:
 
-1. Put your C++ in **new** files under `common/cpp/audioapi/dsp/rnwac_ext/` in react-native-audio-api, including
-   `Extensions.h` declaring `namespace rnwac_ext { void registerKernels(); }`. If that header exists at build time,
-   `Kernels.cpp` calls `rnwac_ext::registerKernels()` the first time the registry is used. Register with
-   `rnwac::registerKernel(id, "name", fn)`, using ids 100-255.
-2. Copy the files in your own install step:
+1. Put your C++ in **new** files, including `Extensions.h` declaring `namespace rnwac_ext { void registerKernels(); }`.
+   Register with `rnwac::registerKernel(id, "name", fn)`, using ids 100-255, and include `<rnwac/Kernels.h>`.
+2. Copy them into this package's `common/cpp/rnwac_ext/` in your own install step. If `<rnwac_ext/Extensions.h>`
+   exists at build time, `Kernels.cpp` calls `rnwac_ext::registerKernels()` the first time the registry is used, and the
+   CMake and podspec globs compile your `.cpp` files into this module:
 
    ```js
    const { applyExtensionFiles } = require('rn-web-audio-compat/scripts/apply-native');
-   applyExtensionFiles('my-package', path.join(__dirname, '../native/files'));
+   applyExtensionFiles('my-package', path.join(__dirname, '../native/rnwac_ext'));
    ```
 
-   This applies rn-web-audio-compat's patch first if it isn't applied yet, under the same lock.
 3. In JS, call `registerKernel()` for each kernel. At startup, call `assertNativeKernels(ctx, [...names])` so a missing
    native build fails loudly instead of silently falling back to JS.
 
@@ -105,13 +112,3 @@ re-applied safely. (rn-strudel does it this way.)
 2. `parity.cpp` runs the C++ kernels on the same input and requires the output to match within 2e-6 per sample.
 
 `npm run parity` runs it for this library's kernels.
-
-## Updating the patch
-
-```sh
-scripts/rnaa-dev.sh checkout   # native/.work/package = pristine 0.13.6 (a git repo) with rnaa.patch applied
-# edit files under native/.work/package (NEW files go in native/rnaa-0.13.6/files instead)
-scripts/rnaa-dev.sh regen      # rewrites rnaa.patch from native/.work/package
-```
-
-`native/.work` is git-ignored.

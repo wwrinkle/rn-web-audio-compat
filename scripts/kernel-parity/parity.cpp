@@ -1,7 +1,7 @@
 // Runs the registered C++ kernels (rnwac::runKernel) on reference data written by writeRefs.ts (from Jest tests)
 // and compares sample by sample. Usage: parity <ref-dir>. Exit code 1 if any case exceeds tolerance.
 
-#include <audioapi/dsp/rnwac/Kernels.h>
+#include <rnwac/Kernels.h>
 
 #include <cmath>
 #include <cstdio>

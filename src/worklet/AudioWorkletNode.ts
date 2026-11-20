@@ -1,5 +1,5 @@
-// AudioWorkletNode for React Native, on top of react-native-audio-api's real-time WorkletProcessingNode /
-// WorkletSourceNode. Matches the call contract Web Audio code uses: `new AudioWorkletNode(ctx, processorName,
+// AudioWorkletNode for React Native, on top of react-native-audio-worklets' real-time WorkletProcessingNode /
+// WorkletSourceNode (react-native-audio-api 1.0 moved them into that package). Matches the call contract Web Audio code uses: `new AudioWorkletNode(ctx, processorName,
 // { processorOptions })`, then `node.parameters.get(name)` (a LiveAudioParam with value and automation) and
 // `node.port.postMessage(...)` (JS -> processor only).
 //
@@ -17,7 +17,7 @@
 // escaping a worklet callback aborts the whole app, so every callback here is wrapped in try/catch (the block is
 // silenced instead).
 //
-// SOURCE vs EFFECT: Web Audio's AudioWorkletNode covers both. react-native-audio-api splits them into
+// SOURCE vs EFFECT: Web Audio's AudioWorkletNode covers both. react-native-audio-worklets splits them into
 // WorkletProcessingNode (effect, has input) and WorkletSourceNode (source, needs .start()); the module's `kind` picks one
 // and sources are started automatically. The constructor returns the real underlying node (not `this`), so connect() etc.
 // are the library's own; `static [Symbol.hasInstance]` keeps `node instanceof AudioWorkletNode` working.
@@ -40,6 +40,7 @@ import {
   computeAutomatedValue as computeAutomatedValueImport,
   type ParamCache,
 } from './liveAudioParam';
+import { createWorkletProcessingNode, createWorkletSourceNode } from '../native/nativeModule';
 // The registries are intentionally heterogeneous (each module's State type differs and is only known where it's
 // registered); `any` here is the type-erasure boundary, not a leak into calling code.
 const registry = new Map<string, WorkletProcessorModule<any>>();
@@ -158,7 +159,7 @@ export class AudioWorkletNode {
     let node: AudioNode;
 
     if (module.kind === 'source') {
-      const sourceNode = context.createWorkletSourceNode((audioData, framesToProcess, currentTime) => {
+      const sourceNode = createWorkletSourceNode(context, (audioData, _outputChannelCount, framesToProcess, currentTime) => {
         'worklet';
 
         // The whole callback is inside the try: an exception escaping it aborts the app (docs/FINDINGS.md, "Worklet
@@ -193,11 +194,11 @@ export class AudioWorkletNode {
             audioData[ch].fill(0);
           }
         }
-      }, 'AudioRuntime');
+      });
       sourceNode.start();
       node = sourceNode;
     } else {
-      node = context.createWorkletProcessingNode((inputData, outputData, framesToProcess, currentTime) => {
+      node = createWorkletProcessingNode(context, (inputData, outputData, _inCh, _outCh, framesToProcess, currentTime) => {
         'worklet';
 
         try {
@@ -232,7 +233,7 @@ export class AudioWorkletNode {
             outputData[ch].fill(0);
           }
         }
-      }, 'AudioRuntime');
+      });
     }
 
     const parameters = new Map<string, LiveAudioParam>();
