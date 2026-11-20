@@ -14,9 +14,10 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-audio-api": "1.0.1",
+    "react-native-audio-worklets": "0.1.0",
     "react-native-worklets": "0.10.1",
     "rn-web-audio-compat": "file:..",
-    "react-native-audio-worklets": "0.1.0"
+    "tone": "15.1.22"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

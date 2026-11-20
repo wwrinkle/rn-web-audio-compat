@@ -9,6 +9,12 @@
       "react-native-worklets": [
         "./node_modules/react-native-worklets"
       ],
+      "tone": [
+        "./node_modules/tone"
+      ],
+      "tone/*": [
+        "./node_modules/tone/*"
+      ],
       "react-native": [
         "./node_modules/react-native"
       ],

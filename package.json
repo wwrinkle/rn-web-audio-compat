@@ -17,7 +17,8 @@
     "web-audio",
     "audio-worklet",
     "react-native-audio-api",
-    "dsp"
+    "dsp",
+    "tone.js"
   ],
   "main": "src/index.ts",
   "react-native": "src/index.ts",
@@ -25,6 +26,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./globals": "./src/globals.ts",
+    "./tone": {
+      "browser": "./src/tone/index.web.ts",
+      "react-native": "./src/tone/index.ts",
+      "default": "./src/tone/index.ts"
+    },
     "./scripts/apply-native": "./scripts/apply-native.js",
     "./scripts/kernel-parity/writeRefs": "./scripts/kernel-parity/writeRefs.ts",
     "./package.json": "./package.json"
@@ -58,7 +64,8 @@
     "react-native": "*",
     "react-native-audio-api": "^1.0.1",
     "react-native-audio-worklets": "^0.1.0",
-    "react-native-worklets": ">=0.10.1"
+    "react-native-worklets": ">=0.10.1",
+    "tone": "^15.1.22"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",
@@ -79,6 +86,11 @@
       "modulesProvider": {
         "NativeWebAudioCompatModule": "NativeWebAudioCompatModuleProvider"
       }
+    }
+  },
+  "peerDependenciesMeta": {
+    "tone": {
+      "optional": true
     }
   }
 }

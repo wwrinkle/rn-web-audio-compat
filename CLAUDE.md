@@ -17,6 +17,10 @@ thread, and [native/README.md](native/README.md) before touching the native modu
 - **Device runs:** delete `example/android/app/build/generated/assets/react` before `./gradlew :app:assembleRelease`,
   or a stale JS bundle ships. `EXPO_PUBLIC_AUTORUN=1` runs the whole suite on launch; read `[CONFORMANCE]` lines from
   `adb logcat`. Keep the phone unlocked (`adb shell svc power stayon usb`): the app stalls behind the lock screen.
+  `EXPO_PUBLIC_AUTORUN=stress` runs the native crash stress tests, and `EXPO_PUBLIC_AUTORUN=tone` the Tone.js checks,
+  ending in a STATUS line every 5 s for screen-lock tests (`example/harness/`; `[STRESS]` / `[TONE]` lines). Turning
+  the screen off with `adb shell input keyevent KEYCODE_SLEEP` is fine for a lock test, but the phone then needs a
+  manual unlock before the next launch.
 - **Typecheck** with `npm run typecheck` (the example's tsconfig covers `src/` and `conformance/`).
 - **iOS:** run the `iOS example build` workflow (free: public repo), sideload the .ipa, read `[CONFORMANCE]` lines
   from the device log (e.g. `pymobiledevice3 syslog live`, started before opening the app).

@@ -77,18 +77,18 @@ lines.push(line('What Tone.js uses in its core and everyday classes', tone));
 lines.push(line('What Tone.js uses, including opt-in classes', toneOptIn));
 lines.push('');
 lines.push(
-  'The biggest gaps (3D spatialization, media streams, latency reporting, output device selection, the deprecated ' +
-    'ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough\'s worklet processors, ' +
-    'reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)\'s own COVERAGE.md.'
+  'The biggest gaps (media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) ' +
+    'are ones Strudel never touches. Strudel-specific pieces (superdough\'s worklet processors, reverb, delay) are ' +
+    'covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)\'s own COVERAGE.md.'
 );
 lines.push('');
 lines.push(
-  'Tone.js reaches further than Strudel. Its gaps here: `listener` (`AudioListener`), which Tone\'s `Listener` reads ' +
-    'on every context initialization, so a Tone.js app needs one, even an inert stand-in, before Tone sets up its ' +
-    'context; its AudioWorklet classes (`FeedbackCombFilter`, so `Freeverb`, `JCReverb` and `PluckSynth`, and ' +
-    '`BitCrusher`), which load their processors from a Blob URL that `addModule()` can\'t load; and the opt-in ' +
-    '`Panner3D`, `UserMedia` and `Recorder`. Tone also starts its own timer clock (a Worker or `setTimeout`), which ' +
-    'stops with the screen locked; `createAudioClock()` can tick it instead (`clockSource: \'offline\'`).'
+  'Tone.js reaches further than Strudel. Its gaps here: its AudioWorklet classes (`FeedbackCombFilter`, so ' +
+    '`Freeverb`, `JCReverb` and `PluckSynth`, and `BitCrusher`), which load their processors from a Blob URL that ' +
+    '`addModule()` can\'t load; `Panner3D`\'s `\'HRTF\'` model, which renders as `\'equalpower\'`; ' +
+    '`Compressor.reduction`; and the opt-in `UserMedia` and `Recorder`. Tone also needs its context and clock set up ' +
+    'for React Native (it makes a context as it loads, and its timer clock stops with the screen locked): ' +
+    '`rn-web-audio-compat/tone` does both (README.md, "Tone.js").'
 );
 lines.push('');
 lines.push('## Beyond the standard API');
@@ -97,6 +97,7 @@ lines.push('- `FeedbackDelayNode`: a delay with feedback that works on react-nat
 lines.push('- `createFdnReverbNode()`: algorithmic reverb whose cost does not grow with its length (C++ kernel), level-matched to a browser\'s normalized ConvolverNode.');
 lines.push('- `createAudioClock()`: setInterval/clearInterval driven by the audio thread, which keeps running with the screen locked on Android (plain JS timers stop).');
 lines.push('- `startBackgroundPlayback()` / `stopBackgroundPlayback()`: the Android foreground-service notification that keeps audio alive under screen lock.');
+lines.push('- `rn-web-audio-compat/tone`: Tone.js on React Native: the app\'s one context handed to Tone before it loads, and Tone\'s clock ticked by `createAudioClock()`, so it keeps time with the screen locked.');
 lines.push('- `registerKernel()` / `createNativeKernelNode()`: run your own C++ DSP kernel in the graph (see native/README.md).');
 lines.push('- `measureAudioLoad()`, `assertNativeKernels()`: audio-thread load and native build checks.');
 lines.push('');

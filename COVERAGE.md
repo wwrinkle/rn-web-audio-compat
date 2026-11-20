@@ -20,7 +20,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `currentTime` | Yes | react-native-audio-api; like a browser, a new context starts on resume() (or its first source start) | — | Yes | Yes | — | Yes |
 | `state` | Yes | react-native-audio-api | — | No | Yes | — | Yes |
 | `onstatechange` | Partial | rn-web-audio-compat: fired when `resume()` / `suspend()` / `close()` change the state (react-native-audio-api has no state events, so a change the system makes on its own, e.g. an audio interruption, isn't reported) | [globals.ts](src/globals.ts) (`onstatechange`) | No | Yes: `Context` sets it and re-emits `statechange` | — | Yes |
-| `listener` (`AudioListener`) | No | — | — | No | Yes: `Listener`, created on every context's initialization, wraps its nine params | — | — |
+| `listener` (`AudioListener`) | Yes | react-native-audio-api | — | No | Yes: `Listener`, created on every context's initialization, wraps its nine params | — | Yes |
 | `audioWorklet` | Partial | `addModule()` resolves but loads no code: processors are registered from JS instead (`registerWorkletProcessor` / `registerNativeProcessor`) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher` | — | Yes |
 | `createAnalyser()` | Yes | react-native-audio-api | — | Opt-in | Opt-in: `Analyser` (`Meter`, `FFT`, `Waveform`, `DCMeter`) | — | Yes |
 | `createBiquadFilter()` | Yes | react-native-audio-api; returns an explicit-stereo node (fan-out safe) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Yes: `Filter`, `MonoSynth`, `AutoFilter`, `Phaser` | — | Yes |
@@ -35,7 +35,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `createGain()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Yes | — | Yes |
 | `createIIRFilter()` | Yes | react-native-audio-api | — | No | Opt-in: `OnePoleFilter` (`Freeverb`, `PluckSynth`), `PhaseShiftAllpass` (`FrequencyShifter`) | — | Yes |
 | `createOscillator()` | Yes | react-native-audio-api | — | Yes | Yes | — | Yes |
-| `createPanner()` | No | — | — | No | Opt-in: `Panner3D` | — | — |
+| `createPanner()` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
 | `createPeriodicWave()` | Yes | react-native-audio-api | — | Yes | Opt-in: `Oscillator` types other than plain sine/square/sawtooth/triangle (`sine4`, `custom` partials, a nonzero `phase`; `FatOscillator`) | — | Yes |
 | `createScriptProcessor()` (deprecated) | No | — | — | No | No | — | — |
 | `createStereoPanner()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Opt-in: `Panner`: `Channel`, `PanVol`, `AutoPanner`, `CrossFade` | — | Yes |
@@ -196,7 +196,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | Name | Covered? | How | Source | Strudel? | Tone.js? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|---|
 | `DynamicsCompressorNode` constructor | Yes | rn-web-audio-compat: a C++ kernel in this library's own native node (JS worklet fallback); global | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](common/cpp/rnwac/Kernels.cpp) | Yes | No | — | Yes |
-| `threshold` / `knee` / `ratio` / `attack` / `release` | Yes | rn-web-audio-compat: AudioParam-like params read by the kernel | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts) | Yes | Opt-in: `Compressor`, `Limiter` | — | Yes |
+| `threshold` / `knee` / `ratio` / `attack` / `release` | Partial | rn-web-audio-compat: params read by the kernel once per block, which pass `instanceof AudioParam`; automation takes effect at the call, not at its scheduled time | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [kernelParam.ts](src/kernels/kernelParam.ts) | Yes | Opt-in: `Compressor`, `Limiter` (wrap each in a `Param`, which asserts `instanceof AudioParam`) | — | Yes |
 | `reduction` | No | — | — | No | Opt-in: `Compressor.reduction` | — | — |
 
 ## ChannelMergerNode and ChannelSplitterNode
@@ -210,17 +210,17 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Tone.js? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|---|
-| `PannerNode` constructor | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.panningModel` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.distanceModel` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.refDistance` / `maxDistance` / `rolloffFactor` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.coneInnerAngle` / `coneOuterAngle` / `coneOuterGain` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.positionX/Y/Z` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.orientationX/Y/Z` | No | — | — | No | Opt-in: `Panner3D` | — | — |
-| `PannerNode.setPosition()` / `setOrientation()` | No | — | — | No | No | — | — |
-| `AudioListener.positionX/Y/Z` | No | — | — | No | Yes: `Listener` (see `listener`) | — | — |
-| `AudioListener.forwardX/Y/Z` / `upX/Y/Z` | No | — | — | No | Yes: `Listener` (see `listener`) | — | — |
-| `AudioListener.setPosition()` / `setOrientation()` | No | — | — | No | No | — | — |
+| `PannerNode` constructor | Yes | react-native-audio-api. Global | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.panningModel` | Partial | react-native-audio-api; `'HRTF'` is accepted but renders as `'equalpower'` | — | No | Opt-in: `Panner3D` (default `'HRTF'`) | — | Yes |
+| `PannerNode.distanceModel` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.refDistance` / `maxDistance` / `rolloffFactor` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.coneInnerAngle` / `coneOuterAngle` / `coneOuterGain` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.positionX/Y/Z` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.orientationX/Y/Z` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
+| `PannerNode.setPosition()` / `setOrientation()` | Yes | Sets the six params (deprecated in the spec; react-native-audio-api lacks them) | [globals.ts](src/globals.ts) (`PannerNode.prototype.setPosition`) | No | No | — | Yes |
+| `AudioListener.positionX/Y/Z` | Yes | react-native-audio-api | — | No | Yes: `Listener` (see `listener`) | — | Yes |
+| `AudioListener.forwardX/Y/Z` / `upX/Y/Z` | Yes | react-native-audio-api | — | No | Yes: `Listener` (see `listener`) | — | Yes |
+| `AudioListener.setPosition()` / `setOrientation()` | Yes | react-native-audio-api (deprecated in the spec) | — | No | No | — | Yes |
 
 ## Media stream / element nodes
 
@@ -256,15 +256,15 @@ Counted per row (rows that group several members count once). Partial counts as 
 
 | Scope | Rows | Yes | Partial | No | Coverage | Present at all |
 |---|---|---|---|---|---|---|
-| Whole standard Web Audio API | 140 | 93 | 16 | 31 | **72%** | 78% |
-| What Strudel uses in normal patterns | 74 | 64 | 10 | 0 | **93%** | 100% |
-| What Strudel uses, including opt-in features | 82 | 70 | 10 | 2 | **91%** | 98% |
-| What Tone.js uses in its core and everyday classes | 57 | 48 | 6 | 3 | **89%** | 95% |
-| What Tone.js uses, including opt-in classes | 102 | 73 | 14 | 15 | **78%** | 85% |
+| Whole standard Web Audio API | 140 | 104 | 18 | 18 | **81%** | 87% |
+| What Strudel uses in normal patterns | 74 | 63 | 11 | 0 | **93%** | 100% |
+| What Strudel uses, including opt-in features | 82 | 69 | 11 | 2 | **91%** | 98% |
+| What Tone.js uses in its core and everyday classes | 57 | 51 | 6 | 0 | **95%** | 100% |
+| What Tone.js uses, including opt-in classes | 102 | 82 | 16 | 4 | **88%** | 96% |
 
-The biggest gaps (3D spatialization, media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough's worklet processors, reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)'s own COVERAGE.md.
+The biggest gaps (media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough's worklet processors, reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)'s own COVERAGE.md.
 
-Tone.js reaches further than Strudel. Its gaps here: `listener` (`AudioListener`), which Tone's `Listener` reads on every context initialization, so a Tone.js app needs one, even an inert stand-in, before Tone sets up its context; its AudioWorklet classes (`FeedbackCombFilter`, so `Freeverb`, `JCReverb` and `PluckSynth`, and `BitCrusher`), which load their processors from a Blob URL that `addModule()` can't load; and the opt-in `Panner3D`, `UserMedia` and `Recorder`. Tone also starts its own timer clock (a Worker or `setTimeout`), which stops with the screen locked; `createAudioClock()` can tick it instead (`clockSource: 'offline'`).
+Tone.js reaches further than Strudel. Its gaps here: its AudioWorklet classes (`FeedbackCombFilter`, so `Freeverb`, `JCReverb` and `PluckSynth`, and `BitCrusher`), which load their processors from a Blob URL that `addModule()` can't load; `Panner3D`'s `'HRTF'` model, which renders as `'equalpower'`; `Compressor.reduction`; and the opt-in `UserMedia` and `Recorder`. Tone also needs its context and clock set up for React Native (it makes a context as it loads, and its timer clock stops with the screen locked): `rn-web-audio-compat/tone` does both (README.md, "Tone.js").
 
 ## Beyond the standard API
 
@@ -272,5 +272,6 @@ Tone.js reaches further than Strudel. Its gaps here: `listener` (`AudioListener`
 - `createFdnReverbNode()`: algorithmic reverb whose cost does not grow with its length (C++ kernel), level-matched to a browser's normalized ConvolverNode.
 - `createAudioClock()`: setInterval/clearInterval driven by the audio thread, which keeps running with the screen locked on Android (plain JS timers stop).
 - `startBackgroundPlayback()` / `stopBackgroundPlayback()`: the Android foreground-service notification that keeps audio alive under screen lock.
+- `rn-web-audio-compat/tone`: Tone.js on React Native: the app's one context handed to Tone before it loads, and Tone's clock ticked by `createAudioClock()`, so it keeps time with the screen locked.
 - `registerKernel()` / `createNativeKernelNode()`: run your own C++ DSP kernel in the graph (see native/README.md).
 - `measureAudioLoad()`, `assertNativeKernels()`: audio-thread load and native build checks.

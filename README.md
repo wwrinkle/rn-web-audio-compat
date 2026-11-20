@@ -14,11 +14,11 @@ nodes natively. This library fills in what it doesn't have, and fixes what behav
   - `OfflineAudioContext.oncomplete`
 - **What behaves differently:** graph cycles, fan-out, tail-time, several crashes.
 
-It was built to run [Strudel](https://strudel.cc) (see [rn-strudel](https://github.com/wwrinkle/rn-strudel)), but
-nothing here is Strudel-specific.
+It was built to run [Strudel](https://strudel.cc) (see [rn-strudel](https://github.com/wwrinkle/rn-strudel)), and
+runs [Tone.js](https://tonejs.github.io) too (see [Tone.js](#tonejs) below). Nothing in it depends on either.
 
 - **[COVERAGE.md](COVERAGE.md):** the Web Audio API member by member: covered or not, how, where, and a self-test for
-  each. 71% of the whole API, 92% of what Strudel uses.
+  each. 81% of the whole API, 93% of what Strudel uses, 95% of what Tone.js's core and everyday classes use.
 - **[docs/FINDINGS.md](docs/FINDINGS.md):** everything that behaves differently from a browser, and why. Worth reading
   if you run Web Audio code on React Native, with or without this library.
 - **[native/README.md](native/README.md):** this library's native module (C++ kernel nodes on react-native-audio-api's
@@ -97,12 +97,37 @@ JS on the audio thread is expensive on phones. For anything heavy, write the pro
 with `registerNativeProcessor`; the JS version stays as the fallback and the spec. See
 [native/README.md](native/README.md#native-kernels).
 
+### Tone.js
+
+```ts
+import 'rn-web-audio-compat/globals'; // first
+import 'rn-web-audio-compat/tone';    // second: before anything imports 'tone'
+import * as Tone from 'tone';
+import { startTone } from 'rn-web-audio-compat/tone';
+
+await startTone(); // in place of Tone.start(), from a user action
+
+const synth = new Tone.Synth().toDestination();
+Tone.getTransport().scheduleRepeat((time) => synth.triggerAttackRelease('C4', '8n', time), '4n');
+Tone.getTransport().start();
+```
+
+`rn-web-audio-compat/tone` makes the app's one `AudioContext` and gives it to Tone before Tone's own module loads (Tone
+would otherwise make a second one). `startTone()` resumes it, drives Tone's clock from the audio thread, so the
+transport keeps time with the screen locked, and shows the Android playback notification (`backgroundPlayback: false`
+to skip it). Its web build is stock Tone.js with the same exports, so shared code needs no platform checks. Install
+`tone` (15.1.22 or later 15.x) yourself.
+
+Tone's AudioWorklet classes (`Freeverb`, `JCReverb`, `PluckSynth`, `BitCrusher`) don't work yet, and `Panner3D`'s
+`'HRTF'` renders as equal-power. Details are in [docs/FINDINGS.md](docs/FINDINGS.md#tonejs).
+
 ### Also included
 
 | Export | What it is |
 | --- | --- |
 | `createFdnReverbNode(ctx, { decayTime, lpFreqStart, lpFreqEnd })` | Algorithmic reverb (C++). Its cost doesn't grow with length. On a Pixel 10: ~41% audio-thread load where a 0.6 s convolution reverb used 78% |
 | `FeedbackDelayNode` | Delay with feedback in one node (C++). The graph rejects the usual `DelayNode` cycle |
+| `rn-web-audio-compat/tone` (`startTone()`, `getToneSetup()`) | Tone.js set up on the app's one context, with a clock that survives the screen lock (see [Tone.js](#tonejs)) |
 | `createAudioClock(ctx)` | `setInterval` / `clearInterval` clocked by the audio thread. On Android, JS timers stop when the screen locks |
 | `startBackgroundPlayback()` / `stopBackgroundPlayback()` | The Android playback notification and permission that keep audio running under screen lock |
 | `measureAudioLoad(ctx, seconds, sleep)`, `assertNativeKernels(ctx, names)` | Audio-thread load measurement; a startup check that the native module and kernels are built in |

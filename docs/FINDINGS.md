@@ -1,6 +1,6 @@
 # Findings: react-native-audio-api vs. the Web Audio API
 
-What we learned running browser Web Audio code (Strudel/superdough) on
+What we learned running browser Web Audio code (Strudel/superdough, then Tone.js) on
 [react-native-audio-api](https://github.com/software-mansion/react-native-audio-api) 0.13.x, on real devices
 (iPhone, Pixel 10) and the Android emulator, and what changed with 1.0 (sections say so where they differ). Each item says what goes wrong, why, and what this library does about it.
 Source comments refer to these sections by name.
@@ -97,7 +97,10 @@ context (offline ones too) gets an `AudioEventProducer` at construction, but its
 it as the JS side drains it, so a context that emitted an event early keeps getting events for the app's lifetime,
 however many contexts come after. A context whose first event comes after the blocks are gone never gets any.
 
-Impact: none for an app with one long-lived context (rn-strudel's `initStrudel()` makes one). It bites anything that
+Impact: none for an app with one long-lived context (rn-strudel's `initStrudel()` and `rn-web-audio-compat/tone` each
+make one). That context keeps its events while others come and go after it: on a Pixel 10, Tone.js rendered 12
+`Tone.Reverb` impulse responses in 12 `OfflineAudioContext`s after the app's context, and that context's audio clock,
+and the Tone transport it drives, kept exact time throughout (`EXPO_PUBLIC_AUTORUN=tone`). It bites anything that
 creates contexts repeatedly, e.g. a new context per play/stop. Workaround: keep one context for the app's lifetime, and
 have it emit an event early (e.g. a short source with `onended`) if other contexts may come first.
 
@@ -106,6 +109,32 @@ duration)`) run on `TestEnv.eventContext()`, one context made at launch that fir
 (`createEventContext` in `conformance/tools.ts`); every other row still gets a fresh context. After Run all, a canary
 logs `[CONFORMANCE] upstream: a fresh context after the suite gets onended ...: no` while the bug is there. When it
 says `yes` on a new react-native-audio-api, the fix is upstream: drop `needsEvents`, `eventContext` and this section.
+
+## Tone.js
+
+[Tone.js](https://tonejs.github.io) 15.1.22 runs on this library (Pixel 10, react-native-audio-api 1.0.1: synths,
+`Sampler`, `Filter` with an `LFO`, `Compressor`, `PingPongDelay`, `Chorus`, `Panner3D`, `Reverb`, the transport, and
+exact timing for 90 s with the screen off). What it needed:
+
+- **One context, set before Tone loads.** Tone's index module makes a context as it evaluates
+  (`export const Transport = getContext().transport`): a second native `AudioContext`, wrapped by
+  standardized-audio-context. `rn-web-audio-compat/tone` makes the app's context, wraps it in a Tone `Context`, and
+  hands it over through `tone/build/esm/core/Global.js` first, so Tone's index uses it.
+- **A clock that survives the screen lock.** Tone's ticker is a Worker or `setTimeout`, and Android stops JS timers with
+  the screen locked. With `clockSource: 'offline'` Tone starts none; `startTone()` emits its `'tick'` from
+  `createAudioClock()`.
+- **Params of this library's nodes must pass `instanceof AudioParam`.** Tone wraps every param in a `Param`, which
+  asserts it through standardized-audio-context (`anything instanceof window.AudioParam`). The C++ kernel nodes' params
+  (`DynamicsCompressorNode.threshold`, ...) were plain objects, so `Tone.Compressor` threw "param must be an AudioParam".
+  They are now `KernelParam`s, which the global `AudioParam` accepts, with the members `Param` reads (`defaultValue`,
+  `minValue`, `maxValue`, `setTargetAtTime`, `cancelAndHoldAtTime`). Kernel params apply automation at the call, not
+  at its scheduled time.
+- **Not working: Tone's AudioWorklet classes** (`Freeverb`, `JCReverb`, `PluckSynth` through `FeedbackCombFilter`;
+  `BitCrusher`). They load their processor source from a Blob URL (`URL.createObjectURL` doesn't exist here, and
+  `addModule()` loads no code anyway). Porting their processors with `registerWorkletProcessor` /
+  `registerNativeProcessor` under Tone's processor names would make them work.
+- **`Panner3D`'s default `'HRTF'`** is accepted but renders as `'equalpower'` (react-native-audio-api ignores
+  `panningModel`).
 
 ## Browser globals and import order
 
@@ -132,8 +161,11 @@ status on 1.0.1 per item:
 
 - One worklet runtime per context: react-native-audio-worklets uses a single shared audio runtime, which was the fix.
 - Unlocked worklet runtime, dangling `AudioParam` inputs: the code involved was rewritten in 1.0 (worklets moved to their
-  own package; the graph was refactored). The conformance suite ran clean, but these need their original stress tests
-  (create/close cycles with worklet nodes; releasing LFO-modulated filters) before they count as fixed.
+  own package; the graph was refactored). Both stress tests pass on a Pixel 10 (2026-11-20), twice each, with no
+  crash: 300 create/close cycles of a context hosting JS worklet nodes and C++ kernel nodes, with worklet nodes created
+  while the audio thread runs one and `gc()` every 10 cycles; and 400 rounds of releasing LFO-modulated filters
+  (modulator first, filter first, both, stop without disconnect) next to filters that stay modulated. The example
+  app's `EXPO_PUBLIC_AUTORUN=stress` build runs them (`example/harness/stress.ts`).
 - `ConvolverNode` before a buffer is set: fixed upstream (the convolver was redesigned); the conformance rows pass.
 
 Up to 0.13.6:
