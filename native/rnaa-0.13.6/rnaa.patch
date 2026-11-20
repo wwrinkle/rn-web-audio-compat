@@ -255,7 +255,7 @@ index e7fcd1d..2533101 100644
  
  } // namespace audioapi
 diff --git a/common/cpp/audioapi/core/effects/ConvolverNode.cpp b/common/cpp/audioapi/core/effects/ConvolverNode.cpp
-index fa65999..e5efb89 100644
+index fa65999..143f34b 100644
 --- a/common/cpp/audioapi/core/effects/ConvolverNode.cpp
 +++ b/common/cpp/audioapi/core/effects/ConvolverNode.cpp
 @@ -83,6 +83,10 @@ float ConvolverNode::calculateNormalizationScale(const std::shared_ptr<AudioBuff
@@ -269,6 +269,20 @@ index fa65999..e5efb89 100644
      signalledToStop_ = true;
      remainingSegments_ = convolvers_.at(0)->getSegCount();
    }
+@@ -97,6 +101,13 @@ std::shared_ptr<DSPAudioBuffer> ConvolverNode::processNode(
+     printf(
+         "[AUDIOAPI WARN] convolver requires 128 buffer size for each render quantum, otherwise quality of convolution is very poor\n");
+   }
++  // rn-web-audio-compat patch: until a buffer is set there are no convolvers and no thread pool, and
++  // performConvolution() dereferenced the null threadPool_ (SIGSEGV on the render thread). A convolver without a
++  // buffer outputs silence (Web Audio spec), so a connected node can now get its buffer later.
++  if (convolvers_.empty()) {
++    audioBuffer_->zero();
++    return audioBuffer_;
++  }
+   if (signalledToStop_) {
+     if (remainingSegments_ > 0) {
+       remainingSegments_--;
 diff --git a/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp b/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp
 index 9faec92..25167df 100644
 --- a/common/cpp/audioapi/core/effects/WorkletProcessingNode.cpp

@@ -36,7 +36,7 @@ The C++ is shared by iOS and Android. Android's CMake and iOS's podspec pick up 
 | Shared worklet runtime | `src/AudioAPIModule/AudioAPIModule.ts` | One runtime for every context. A runtime per context crashed during garbage collection after `close()` |
 | Runtime lock | `BaseAudioContextHostObject.cpp` | Audio-runtime worklet jobs raced with JS-thread node creation (Hermes crash) |
 | Dangling param inputs | `core/AudioNode.cpp`, `core/utils/AudioGraphManager.cpp` | A freed node stayed in the input list of an `AudioParam` it was connected to |
-| Convolver | `core/effects/ConvolverNode.cpp` | Crash when rendering before a buffer is set |
+| Convolver | `core/effects/ConvolverNode.cpp` | Crashes when rendering before a buffer is set; it outputs silence instead |
 | Android buffer | `android/.../AudioPlayer.cpp` | Maximum Oboe buffer: the default one underruns with JS callbacks |
 | API fixes | `src/core/AudioParam.ts`, `WaveShaperNode.ts`, `PeriodicWave.ts`, `BaseAudioContext.ts` | Read-after-write for `AudioParam.value`; `WaveShaperNode` curve; `PeriodicWave` from plain arrays |
 

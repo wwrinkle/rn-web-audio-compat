@@ -114,6 +114,11 @@ All reproduced on a device before fixing; see [native/README.md](../native/READM
   disconnected or destroyed didn't remove itself, so the render thread dereferenced a freed modulator (SIGSEGV in
   `AudioParam::processInputs`, after releasing an LFO-modulated filter).
 - **`ConvolverNode` before a buffer is set.** The render thread called `.at(0)` on an empty vector (`std::out_of_range`).
+  Processing before a buffer is set also crashed: `performConvolution()` waited on the thread pool, which is only
+  created with the buffer (SIGSEGV in `ThreadPool::wait`, found running Tone.js's `Reverb`, which connects its
+  convolver first and sets the buffer once the impulse response renders). The patch makes it output silence until then.
+  Fixed upstream in react-native-audio-api 1.0 (the convolver was redesigned; it returns early without a thread pool):
+  drop this hunk when upgrading.
 
 ## API bugs fixed in the patch
 

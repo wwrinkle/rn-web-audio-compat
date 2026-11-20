@@ -168,7 +168,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `ConvolverNode.buffer` | Partial | react-native-audio-api (patched). Set `buffer` BEFORE connecting the node's output: an unpatched convolver processed without an impulse response crashes on the audio thread, and replacing the buffer of a running convolver can still race inside the library. Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
+| `ConvolverNode.buffer` | Yes | react-native-audio-api (patched: an unpatched convolver crashed on the audio thread when it processed before `buffer` was set; it now outputs silence, as the spec says, so the buffer can be set after connecting, as Tone.js's Reverb does). Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
 | `ConvolverNode.normalize` | Yes | react-native-audio-api; its normalization matches the Web Audio spec formula within about 1 dB | — | Yes | — | Yes |
 
 ## WaveShaperNode
@@ -255,9 +255,9 @@ Counted per row (rows that group several members count once). Partial counts as 
 
 | Scope | Rows | Yes | Partial | No | Coverage | Present at all |
 |---|---|---|---|---|---|---|
-| Whole standard Web Audio API | 140 | 91 | 18 | 31 | **71%** | 78% |
-| What Strudel uses in normal patterns | 74 | 62 | 12 | 0 | **92%** | 100% |
-| What Strudel uses, including opt-in features | 82 | 68 | 12 | 2 | **90%** | 98% |
+| Whole standard Web Audio API | 140 | 92 | 17 | 31 | **72%** | 78% |
+| What Strudel uses in normal patterns | 74 | 63 | 11 | 0 | **93%** | 100% |
+| What Strudel uses, including opt-in features | 82 | 69 | 11 | 2 | **91%** | 98% |
 
 The biggest gaps (3D spatialization, media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough's worklet processors, reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)'s own COVERAGE.md.
 
