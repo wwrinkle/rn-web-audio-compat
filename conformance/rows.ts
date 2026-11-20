@@ -14,7 +14,7 @@ const W = globalThis as any;
 
 const RNAA = 'react-native-audio-api';
 const G = (name: string) => `[globals.ts](src/globals.ts) (\`${name}\`)`;
-const PATCH = '[rnaa.patch](native/rnaa-0.13.5/rnaa.patch)';
+const PATCH = '[rnaa.patch](native/rnaa-0.13.6/rnaa.patch)';
 const INSTALL = '[AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`)';
 
 // Level of `node` driven by a constant 1.0 through `insert` (a node with an input), i.e. its gain.
@@ -1538,7 +1538,7 @@ const compressor: CoverageRow[] = [
     name: '`DynamicsCompressorNode` constructor',
     covered: 'yes',
     how: 'rn-web-audio-compat: a C++ kernel on a patched WorkletProcessingNode (JS worklet fallback); global',
-    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](native/rnaa-0.13.5/files/common/cpp/audioapi/dsp/rnwac/Kernels.cpp)',
+    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](native/rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.cpp)',
     strudel: 'yes',
     test: async (t) => {
       const c = new W.DynamicsCompressorNode(t.ctx, { threshold: -40, ratio: 20, knee: 0, attack: 0.001, release: 0.05 });

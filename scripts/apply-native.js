@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const SUPPORTED_RNAA = '0.13.5';
+const SUPPORTED_RNAA = '0.13.6';
 const TAG = '[rn-web-audio-compat]';
 
 function findRnaaDir(explicit) {

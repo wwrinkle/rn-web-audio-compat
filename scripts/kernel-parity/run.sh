@@ -13,7 +13,7 @@ rm -rf "$OUT"
 KERNEL_PARITY_OUT="$OUT" npx jest "$TEST" --silent
 INC="$OUT/include"
 mkdir -p "$INC/audioapi/dsp"
-cp -r "$COMPAT/native/rnaa-0.13.5/files/common/cpp/audioapi/dsp/rnwac" "$INC/audioapi/dsp/"
+cp -r "$COMPAT/native/rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac" "$INC/audioapi/dsp/"
 SOURCES=("$INC/audioapi/dsp/rnwac/Kernels.cpp")
 if [ -n "$EXT" ]; then
   cp -r "$EXT" "$INC/audioapi/dsp/rnwac_ext"

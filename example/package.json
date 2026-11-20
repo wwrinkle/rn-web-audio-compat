@@ -14,7 +14,7 @@
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-audio-api": "0.13.5",
+    "react-native-audio-api": "0.13.6",
     "react-native-worklets": "0.10.1",
     "rn-web-audio-compat": "file:.."
   },

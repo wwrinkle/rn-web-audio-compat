@@ -2,7 +2,7 @@
 
 rn-web-audio-compat needs a few changes to react-native-audio-api's own source: crash and API fixes, and a way to run
 C++ DSP kernels inside its graph. The library's documented C++ extension API only exists in its nightly builds, so we
-patch the stable release instead. This is pinned to **react-native-audio-api 0.13.5**: the install step refuses other
+patch the stable release instead. This is pinned to **react-native-audio-api 0.13.6**: the install step refuses other
 versions.
 
 ## How it's applied
@@ -10,8 +10,8 @@ versions.
 `scripts/apply-native.js` runs from this package's `postinstall`. You can also run it yourself as `npx rn-web-audio-compat-apply`.
 It works on the installed `node_modules/react-native-audio-api` in two steps:
 
-1. It copies the new files in `rnaa-0.13.5/files/`.
-2. It applies `rnaa-0.13.5/rnaa.patch` (edits to existing files) with `git apply`.
+1. It copies the new files in `rnaa-0.13.6/files/`.
+2. It applies `rnaa-0.13.6/rnaa.patch` (edits to existing files) with `git apply`.
 
 The script is idempotent: parts that are already applied are skipped, so it's safe to run more than once. It also takes
 a lock, because npm runs different packages' install scripts in parallel. Rebuild the native app after it changes
@@ -45,7 +45,7 @@ Details of each problem are in [docs/FINDINGS.md](../docs/FINDINGS.md).
 ## Native kernels
 
 A kernel is a plain C++ function with no react-native-audio-api types
-(`rnaa-0.13.5/files/common/cpp/audioapi/dsp/rnwac/Kernels.h`):
+(`rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.h`):
 
 ```cpp
 void kernel(const float *const *in, float *const *out, int channels, int frames,
@@ -109,8 +109,8 @@ re-applied safely. (rn-strudel does it this way.)
 ## Updating the patch
 
 ```sh
-scripts/rnaa-dev.sh checkout   # native/.work/package = pristine 0.13.5 (a git repo) with rnaa.patch applied
-# edit files under native/.work/package (NEW files go in native/rnaa-0.13.5/files instead)
+scripts/rnaa-dev.sh checkout   # native/.work/package = pristine 0.13.6 (a git repo) with rnaa.patch applied
+# edit files under native/.work/package (NEW files go in native/rnaa-0.13.6/files instead)
 scripts/rnaa-dev.sh regen      # rewrites rnaa.patch from native/.work/package
 ```
 

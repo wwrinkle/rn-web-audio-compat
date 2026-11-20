@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Maintainer tool for native/rnaa-0.13.5/rnaa.patch (the edits this library makes to react-native-audio-api's own files).
-#   scripts/rnaa-dev.sh checkout   # native/.work = pristine react-native-audio-api 0.13.5 (a git repo) + the current patch
+# Maintainer tool for native/rnaa-0.13.6/rnaa.patch (the edits this library makes to react-native-audio-api's own files).
+#   scripts/rnaa-dev.sh checkout   # native/.work = pristine react-native-audio-api 0.13.6 (a git repo) + the current patch
 #   (edit files under native/.work)
-#   scripts/rnaa-dev.sh regen      # rewrite rnaa.patch from native/.work (new files belong in native/rnaa-0.13.5/files)
+#   scripts/rnaa-dev.sh regen      # rewrite rnaa.patch from native/.work (new files belong in native/rnaa-0.13.6/files)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$ROOT/native/.work"
-PATCH="$ROOT/native/rnaa-0.13.5/rnaa.patch"
+PATCH="$ROOT/native/rnaa-0.13.6/rnaa.patch"
 case "${1:-}" in
   checkout)
     rm -rf "$WORK" && mkdir -p "$WORK"
-    (cd "$WORK" && npm pack react-native-audio-api@0.13.5 --silent >/dev/null && tar xzf react-native-audio-api-0.13.5.tgz && rm react-native-audio-api-0.13.5.tgz)
+    (cd "$WORK" && npm pack react-native-audio-api@0.13.6 --silent >/dev/null && tar xzf react-native-audio-api-0.13.6.tgz && rm react-native-audio-api-0.13.6.tgz)
     cd "$WORK/package"
     git init -q && git add -A && git -c user.name=pristine -c user.email=pristine@localhost commit -qm pristine
     git apply -p1 "$PATCH"

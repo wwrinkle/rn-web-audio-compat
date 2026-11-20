@@ -10,7 +10,7 @@ thread, and [native/README.md](native/README.md) before touching the native patc
 - **Tests are written against the standard Web Audio API** (through `globalThis`), so the web demo runs them unchanged
   in a browser, which is the reference. If a browser disagrees with a test, fix the test.
 - **Native patch:** edit through `scripts/rnaa-dev.sh checkout` / `regen`, never by hand. New C++ files go in
-  `native/rnaa-0.13.5/files/`. After changing a kernel, run `npm run parity`.
+  `native/rnaa-0.13.6/files/`. After changing a kernel, run `npm run parity`.
 - **Device runs:** delete `example/android/app/build/generated/assets/react` before `./gradlew :app:assembleRelease`,
   or a stale JS bundle ships. `EXPO_PUBLIC_AUTORUN=1` runs the whole suite on launch; read `[CONFORMANCE]` lines from
   `adb logcat`. Keep the phone unlocked (`adb shell svc power stayon usb`): the app stalls behind the lock screen.

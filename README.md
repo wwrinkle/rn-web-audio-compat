@@ -29,12 +29,12 @@ nothing here is Strudel-specific.
 - **Android:** 109/109 conformance tests pass on a Pixel 10 and the emulator, the same as in Chrome.
 - **iOS:** 109/109 on an iPhone 13 (iOS 26.5), built by this repo's `iOS example build` workflow.
 - **Distribution:** not published to npm. Install from GitHub.
-- **react-native-audio-api version:** requires **0.13.5** exactly, because the native patch is version-specific.
+- **react-native-audio-api version:** requires **0.13.6** exactly, because the native patch is version-specific.
 
 ## Install
 
 ```sh
-npm install github:wwrinkle/rn-web-audio-compat react-native-audio-api@0.13.5 react-native-worklets
+npm install github:wwrinkle/rn-web-audio-compat react-native-audio-api@0.13.6 react-native-worklets
 ```
 
 This needs a development build; Expo Go won't work. The `postinstall` step patches `node_modules/react-native-audio-api`

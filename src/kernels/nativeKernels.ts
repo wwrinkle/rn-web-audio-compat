@@ -1,5 +1,5 @@
 // JS side of the native (C++) effect kernels. The react-native-audio-api patch this library applies
-// (native/rnaa-0.13.5) lets a WorkletProcessingNode (effects) or WorkletSourceNode (sources) run a registered C++ kernel
+// (native/rnaa-0.13.6) lets a WorkletProcessingNode (effects) or WorkletSourceNode (sources) run a registered C++ kernel
 // by id instead of a JS worklet, so nothing runs in Hermes on the audio thread. See native/README.md.
 //
 // A kernel is described to JS by a KernelEntry: its numeric id (must match the id the C++ side registers), whether it is
