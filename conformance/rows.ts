@@ -1007,9 +1007,10 @@ const scheduled: CoverageRow[] = [
     group: ASN,
     name: '`onended`',
     covered: 'yes',
-    how: RNAA,
+    how: `${RNAA}. On 1.0.1 only the first few contexts to fire an audio-thread event ever get any (the event queue's blocks are never given back): keep one context for the app's lifetime; see [FINDINGS.md](docs/FINDINGS.md#audio-thread-events-stop-after-about-six-contexts-101)`,
     strudel: 'yes',
     tone: 'yes',
+    needsEvents: true,
     test: async (t) => {
       const c = t.ctx.createConstantSource();
       c.connect(t.ctx.destination);
@@ -1133,6 +1134,7 @@ const bufferSource: CoverageRow[] = [
     how: RNAA,
     strudel: 'yes',
     tone: 'yes',
+    needsEvents: true,
     test: async (t) => {
       const s = t.ctx.createBufferSource();
       const b = t.ctx.createBuffer(1, Math.round(t.ctx.sampleRate * 0.4), t.ctx.sampleRate);
@@ -1194,6 +1196,7 @@ const bufferSource: CoverageRow[] = [
     how: RNAA,
     strudel: 'yes',
     tone: 'yes',
+    needsEvents: true,
     test: async (t) => {
       const s = t.ctx.createBufferSource();
       s.buffer = oneSecond(t);

@@ -109,7 +109,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `AudioScheduledSourceNode` (global class) | Yes | react-native-audio-api, global | [globals.ts](src/globals.ts) (`AudioScheduledSourceNode`) | Yes | No | — | Yes |
 | `start()` | Yes | react-native-audio-api | — | Yes | Yes | — | Yes |
 | `stop()` | Yes | react-native-audio-api | — | Yes | Yes | — | Yes |
-| `onended` | Yes | react-native-audio-api | — | Yes | Yes | — | Yes |
+| `onended` | Yes | react-native-audio-api. On 1.0.1 only the first few contexts to fire an audio-thread event ever get any (the event queue's blocks are never given back): keep one context for the app's lifetime; see [FINDINGS.md](docs/FINDINGS.md#audio-thread-events-stop-after-about-six-contexts-101) | — | Yes | Yes | — | Yes |
 
 ## AudioBuffer
 

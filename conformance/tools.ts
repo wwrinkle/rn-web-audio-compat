@@ -5,14 +5,14 @@ export async function runRow(row: CoverageRow, env: TestEnv): Promise<TestResult
   if (!row.test) return { ok: false, detail: 'not implemented', ms: 0 };
   let ctx: any = null;
   try {
-    ctx = await env.createContext();
+    ctx = row.needsEvents ? await env.eventContext() : await env.createContext();
     const t = makeTestContext(ctx, env);
     const detail = await row.test(t);
     return { ok: true, detail, ms: Date.now() - started };
   } catch (err) {
     return { ok: false, detail: String((err as Error)?.message ?? err), ms: Date.now() - started };
   } finally {
-    if (ctx) {
+    if (ctx && !row.needsEvents) {
       try {
         await env.closeContext(ctx);
       } catch {
@@ -21,6 +21,46 @@ export async function runRow(row: CoverageRow, env: TestEnv): Promise<TestResult
     }
   }
 }
+
+// Fires one `onended` on `ctx` and reports whether it arrived within 400 ms.
+async function firesOnended(ctx: any, env: TestEnv): Promise<boolean> {
+  let ended = false;
+  const c = ctx.createConstantSource();
+  c.onended = () => {
+    ended = true;
+  };
+  c.start();
+  c.stop(ctx.currentTime + 0.05);
+  await env.sleep(400);
+  return ended;
+}
+
+// The context behind TestEnv.eventContext(). On react-native-audio-api 1.0.1 a context's event producer claims a block
+// of the event queue on its first audio-thread event, never before, and blocks are never given back (docs/FINDINGS.md).
+// Firing an event right away claims one while blocks are left; the producer then reuses it for good.
+export async function createEventContext(env: TestEnv): Promise<any> {
+  const ctx = await env.createContext();
+  await firesOnended(ctx, env);
+  return ctx;
+}
+
+// Upstream canary for that exhaustion. Run it after the whole suite, which has made far more contexts than the queue
+// has blocks: a fresh context's `onended` still firing means upstream fixed it, and `needsEvents` can go.
+export async function probeFreshContextEvents(env: TestEnv): Promise<boolean> {
+  const ctx = await env.createContext();
+  try {
+    return await firesOnended(ctx, env);
+  } finally {
+    try {
+      await env.closeContext(ctx);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export const EVENT_CANARY =
+  'upstream: a fresh context after the suite gets onended (react-native-audio-api never recycles event-queue blocks; docs/FINDINGS.md)';
 
 export function makeTestContext(ctx: any, env: TestEnv): TestContext {
   const expect = (condition: unknown, message: string): void => {

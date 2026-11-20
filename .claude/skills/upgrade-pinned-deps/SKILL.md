@@ -58,7 +58,9 @@ rn-web-audio-compat and rn-strudel; each has its own "This repo" section below.
   their rows. Never patch upstream: report upstream bugs upstream.
 - Tests: `npm test`, `npm run parity`, `npm run typecheck`, the web demo, then the example on the Pixel with
   `EXPO_PUBLIC_AUTORUN=1` (read `[CONFORMANCE]` lines; delete `example/android/app/build/generated/assets/react`
-  first). iOS through the free `iOS example build` workflow, after asking.
+  first), including its `[CONFORMANCE] upstream:` canary line: `yes` means the event-queue exhaustion in
+  docs/FINDINGS.md is fixed and the suite's `needsEvents` workaround can go. iOS through the free `iOS example build`
+  workflow, after asking.
 - Downstream: rn-strudel's kernel files build against the same API and must follow.
 
 **react-native-audio-worklets:** check the changelog for processor/runtime changes; bump the peer range and

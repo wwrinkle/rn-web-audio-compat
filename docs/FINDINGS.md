@@ -91,10 +91,21 @@ about six contexts in the app's lifetime **every audio-thread event is silently 
 test harness (`RN_AUDIO_API_NODE`: 8192). Found with the conformance suite, which makes a context per row: on a Pixel 10
 the 7th context got no events (bisected with a probe that re-ran the `onended` row after every row).
 
+Mechanics (1.0.1 source): the queue is a moodycamel `ConcurrentQueue` sized for 256 events, i.e. 8 blocks of 32. Every
+context (offline ones too) gets an `AudioEventProducer` at construction, but its producer takes a block only on its
+**first** audio-thread event, through `try_enqueue`, which never allocates. Once it has a block it keeps it and reuses
+it as the JS side drains it, so a context that emitted an event early keeps getting events for the app's lifetime,
+however many contexts come after. A context whose first event comes after the blocks are gone never gets any.
+
 Impact: none for an app with one long-lived context (rn-strudel's `initStrudel()` makes one). It bites anything that
-creates contexts repeatedly, e.g. a new context per play/stop. Workaround: keep one context for the app's lifetime. The
-conformance suite's three event rows (`onended`, `playbackRate`, `start(when, offset, duration)`) fail on 1.0.1 for this
-reason only; each passes when run in a fresh app.
+creates contexts repeatedly, e.g. a new context per play/stop. Workaround: keep one context for the app's lifetime, and
+have it emit an event early (e.g. a short source with `onended`) if other contexts may come first.
+
+The conformance suite does exactly that: rows with `needsEvents` (`onended`, `playbackRate`, `start(when, offset,
+duration)`) run on `TestEnv.eventContext()`, one context made at launch that fires an `onended` straight away
+(`createEventContext` in `conformance/tools.ts`); every other row still gets a fresh context. After Run all, a canary
+logs `[CONFORMANCE] upstream: a fresh context after the suite gets onended ...: no` while the bug is there. When it
+says `yes` on a new react-native-audio-api, the fix is upstream: drop `needsEvents`, `eventContext` and this section.
 
 ## Browser globals and import order
 

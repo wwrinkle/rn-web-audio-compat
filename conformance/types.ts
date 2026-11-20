@@ -11,6 +11,11 @@ export interface TestEnv {
   // A running context (on native, already given installWebAudioCompat()).
   createContext(options?: { sampleRate?: number }): Promise<any>;
   closeContext(ctx: any): Promise<void>;
+  // One running context kept for the app's lifetime and never closed, made with createEventContext() before any other
+  // context emits an event (the app makes it at launch; Run all awaits it first). Rows with `needsEvents` run on it: on
+  // react-native-audio-api 1.0.1 only the first few contexts to emit an event ever get any (docs/FINDINGS.md), so a
+  // fresh context per row would see none.
+  eventContext(): Promise<any>;
   sleep(ms: number): Promise<void>;
   // Makes the 'rnwac-test-gain' processor available on ctx (native: registered JS module; web: addModule of a Blob URL).
   prepareTestWorklet(ctx: any): Promise<void>;
@@ -45,6 +50,9 @@ export interface CoverageRow {
   tone: ToneUse; // used by Tone.js (15.1.22)
   toneVia?: string; // which Tone.js classes use it (markdown)
   savings?: string;
+  // The test waits for an audio-thread event (e.g. `onended`): run it on env.eventContext() instead of a fresh context.
+  // Such a test must leave that context running and nothing playing on it.
+  needsEvents?: boolean;
   test?: ConformanceTest; // absent for rows that aren't implemented (their demo buttons are disabled)
 }
 

@@ -1,10 +1,12 @@
 import { GROUPS, ROWS } from '../../conformance/rows';
-import { runRow, summarize } from '../../conformance/tools';
+import { EVENT_CANARY, createEventContext, probeFreshContextEvents, runRow, summarize } from '../../conformance/tools';
 import { TEST_PROCESSOR_SOURCE } from '../../conformance/testWorklet';
 import type { TestEnv, TestResult } from '../../conformance/types';
 
 const loaded = new WeakSet<BaseAudioContext>();
 const workletUrl = URL.createObjectURL(new Blob([TEST_PROCESSOR_SOURCE], { type: 'application/javascript' }));
+
+let eventContext: Promise<AudioContext> | null = null;
 
 const env: TestEnv = {
   platform: 'web',
@@ -13,6 +15,11 @@ const env: TestEnv = {
     const ctx = new AudioContext(options);
     await ctx.resume();
     return ctx;
+  },
+  // Browsers don't have react-native-audio-api's event-queue limit; kept long-lived only to match the app.
+  eventContext() {
+    eventContext ??= createEventContext(env);
+    return eventContext;
   },
   async closeContext(ctx) {
     if (ctx.state !== 'closed') await ctx.close();
@@ -91,11 +98,13 @@ function show(id: string, r: TestResult): void {
 
 runAll.onclick = async () => {
   runAll.disabled = true;
+  await env.eventContext();
   for (const row of ROWS) {
     if (!row.test) continue;
     resultEls.get(row.id)!.textContent = 'running…';
     show(row.id, await runRow(row, env));
   }
+  console.log(`${EVENT_CANARY}: ${(await probeFreshContextEvents(env)) ? 'yes' : 'no'}`);
   runAll.disabled = false;
 };
 

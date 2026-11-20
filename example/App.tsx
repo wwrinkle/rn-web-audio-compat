@@ -6,14 +6,15 @@ import { StatusBar } from 'expo-status-bar';
 import { AudioContext } from 'react-native-audio-api';
 import { installWebAudioCompat, registerWorkletProcessor } from 'rn-web-audio-compat';
 import { GROUPS, ROWS } from '../conformance/rows';
-import { runRow, summarize } from '../conformance/tools';
+import { EVENT_CANARY, createEventContext, probeFreshContextEvents, runRow, summarize } from '../conformance/tools';
 import { TEST_PROCESSOR, testGainModule } from '../conformance/testWorklet';
 import type { CoverageRow, TestEnv, TestResult } from '../conformance/types';
 
 registerWorkletProcessor(TEST_PROCESSOR, testGainModule);
 
 function makeEnv(audible: () => boolean): TestEnv {
-  return {
+  let eventContext: Promise<any> | null = null;
+  const env: TestEnv = {
     platform: 'native',
     get audible() {
       return audible();
@@ -29,11 +30,16 @@ function makeEnv(audible: () => boolean): TestEnv {
     async closeContext(ctx) {
       if (ctx.state !== 'closed') await ctx.close();
     },
+    eventContext() {
+      eventContext ??= createEventContext(env);
+      return eventContext;
+    },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     async prepareTestWorklet(ctx) {
       await ctx.audioWorklet.addModule('rnwac-test-gain');
     },
   };
+  return env;
 }
 
 // Stripped-down inline markdown for the table cells: `code` stays, [text](link) keeps the text.
@@ -48,6 +54,10 @@ export default function App() {
   const audibleRef = useRef(audible);
   audibleRef.current = audible;
   const env = useMemo(() => makeEnv(() => audibleRef.current), []);
+  // The app's first context, so it is one of the few that get audio-thread events (see TestEnv.eventContext).
+  useEffect(() => {
+    void env.eventContext();
+  }, [env]);
 
   const record = useCallback((id: string, r: TestResult) => {
     console.log(`[CONFORMANCE] ${r.ok ? 'PASS' : 'FAIL'} ${id}: ${r.detail}`);
@@ -65,6 +75,7 @@ export default function App() {
 
   const runAll = useCallback(async () => {
     const all = new Map<string, TestResult>();
+    await env.eventContext();
     for (const row of ROWS) {
       if (!row.test) continue;
       console.log(`[CONFORMANCE] start ${row.id}`);
@@ -75,6 +86,7 @@ export default function App() {
     }
     setRunning(null);
     console.log(`[CONFORMANCE] done: ${summarize(all, ROWS)}`);
+    console.log(`[CONFORMANCE] ${EVENT_CANARY}: ${(await probeFreshContextEvents(env)) ? 'yes' : 'no'}`);
   }, [env, record]);
 
   // Built with EXPO_PUBLIC_AUTORUN=1: run everything silently on launch (automated checks; results go to the log).
