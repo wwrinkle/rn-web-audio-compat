@@ -14,7 +14,6 @@ const W = globalThis as any;
 
 const RNAA = 'react-native-audio-api';
 const G = (name: string) => `[globals.ts](src/globals.ts) (\`${name}\`)`;
-const PATCH = '[rnaa.patch](native/rnaa-0.13.6/rnaa.patch)';
 const INSTALL = '[AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`)';
 
 // Level of `node` driven by a constant 1.0 through `insert` (a node with an input), i.e. its gain.
@@ -211,8 +210,7 @@ const baseAudioContext: CoverageRow[] = [
     group: BAC,
     name: '`createChannelMerger()`',
     covered: 'partial',
-    how: 'rn-web-audio-compat; see ChannelMergerNode',
-    source: G('createChannelMerger'),
+    how: RNAA,
     strudel: 'no',
     test: async (t) => {
       const m = t.ctx.createChannelMerger(2);
@@ -226,8 +224,7 @@ const baseAudioContext: CoverageRow[] = [
     group: BAC,
     name: '`createChannelSplitter()`',
     covered: 'partial',
-    how: 'rn-web-audio-compat; see ChannelSplitterNode',
-    source: G('createChannelSplitter'),
+    how: RNAA,
     strudel: 'no',
     test: async (t) => {
       const s = t.ctx.createChannelSplitter(2);
@@ -255,8 +252,7 @@ const baseAudioContext: CoverageRow[] = [
     group: BAC,
     name: '`createConvolver()`',
     covered: 'yes',
-    how: `${RNAA} (patched against a render-thread crash); see ConvolverNode`,
-    source: PATCH,
+    how: `${RNAA} (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); see ConvolverNode`,
     strudel: 'yes',
     savings: 'Done: see ConvolverNode',
     test: (t) => {
@@ -697,8 +693,7 @@ const audioNode: CoverageRow[] = [
     group: AN,
     name: '`disconnect()` (all forms)',
     covered: 'yes',
-    how: `${RNAA} (patched: also releases AudioParam inputs; the unpatched library left a dangling pointer)`,
-    source: PATCH,
+    how: `${RNAA} (releases AudioParam inputs; 1.0 rewrote the graph code that left a dangling pointer, which was a patch hunk up to 0.13.6)`,
     strudel: 'yes',
     test: async (t) => {
       const g = t.ctx.createGain();
@@ -732,7 +727,8 @@ const audioParam: CoverageRow[] = [
     group: AP,
     name: '`value`',
     covered: 'yes',
-    how: RNAA,
+    how: `${RNAA}; reading back a value just written is rn-web-audio-compat's (the library returns the old value until the audio thread applies it)`,
+    source: G('AudioParam.value'),
     strudel: 'yes',
     test: (t) => {
       const g = t.ctx.createGain();
@@ -912,8 +908,7 @@ const scheduled: CoverageRow[] = [
     group: ASN,
     name: '`onended`',
     covered: 'yes',
-    how: `rn-web-audio-compat alias to ${RNAA}'s \`onEnded\` (without it, browser-style cleanup never runs)`,
-    source: G('onended'),
+    how: RNAA,
     strudel: 'yes',
     test: async (t) => {
       const c = t.ctx.createConstantSource();
@@ -1174,8 +1169,8 @@ const oscillator: CoverageRow[] = [
     group: OSC,
     name: '`PeriodicWave` (constructor / `disableNormalization`)',
     covered: 'yes',
-    how: `${RNAA} (patched: plain number arrays, as the spec allows, used to throw); global`,
-    source: `${G('PeriodicWave')}, ${PATCH}`,
+    how: `${RNAA} (plain number arrays, as the spec allows) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); global`,
+    source: G('PeriodicWave'),
     strudel: 'yes',
     test: (t) => {
       const w = new W.PeriodicWave(t.ctx, { real: [0, 1], imag: [0, 0], disableNormalization: true });
@@ -1355,8 +1350,7 @@ const convolver: CoverageRow[] = [
     group: CONV,
     name: '`ConvolverNode.buffer`',
     covered: 'partial',
-    how: `${RNAA} (patched). Set \`buffer\` BEFORE connecting the node's output: an unpatched convolver processed without an impulse response crashes on the audio thread, and replacing the buffer of a running convolver can still race inside the library. Cost grows with the impulse response length: for reverb, prefer \`createFdnReverbNode\``,
-    source: PATCH,
+    how: `${RNAA}. 1.0 redesigned the convolver: processing before a buffer is set no longer crashes (it did up to 0.13.6, which this library patched). Cost grows with the impulse response length: for reverb, prefer \`createFdnReverbNode\``,
     strudel: 'yes',
     savings: 'Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10)',
     test: async (t) => {
@@ -1393,8 +1387,8 @@ const waveshaper: CoverageRow[] = [
     group: WS,
     name: '`WaveShaperNode` constructor',
     covered: 'yes',
-    how: `${RNAA} (patched: a \`curve\` in the constructor options used to be ignored); the global is an explicit-stereo subclass`,
-    source: `${G('WaveShaperNode')}, ${PATCH}`,
+    how: `${RNAA} (a \`curve\` in the constructor options) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); the global is an explicit-stereo subclass`,
+    source: G('WaveShaperNode'),
     strudel: 'yes',
     test: async (t) => {
       const w = new W.WaveShaperNode(t.ctx, { curve: new Float32Array([-0.25, 0, 0.25]) });
@@ -1408,8 +1402,7 @@ const waveshaper: CoverageRow[] = [
     group: WS,
     name: '`WaveShaperNode.curve`',
     covered: 'partial',
-    how: `${RNAA} (patched: the getter always returned null); can only be set once per node; input is clamped to [-1, 1]`,
-    source: PATCH,
+    how: `${RNAA} (the getter) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); can only be set once per node; input is clamped to [-1, 1]`,
     strudel: 'yes',
     test: (t) => {
       const w = t.ctx.createWaveShaper();
@@ -1537,8 +1530,8 @@ const compressor: CoverageRow[] = [
     group: DC,
     name: '`DynamicsCompressorNode` constructor',
     covered: 'yes',
-    how: 'rn-web-audio-compat: a C++ kernel on a patched WorkletProcessingNode (JS worklet fallback); global',
-    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](native/rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.cpp)',
+    how: "rn-web-audio-compat: a C++ kernel in this library's own native node (JS worklet fallback); global",
+    source: '[DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](common/cpp/rnwac/Kernels.cpp)',
     strudel: 'yes',
     test: async (t) => {
       const c = new W.DynamicsCompressorNode(t.ctx, { threshold: -40, ratio: 20, knee: 0, attack: 0.001, release: 0.05 });
@@ -1574,9 +1567,9 @@ const channels: CoverageRow[] = [
   row({
     group: CH,
     name: '`ChannelMergerNode` constructor',
-    covered: 'partial',
-    how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global',
-    source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
+    covered: 'yes',
+    how: `${RNAA} (native since 1.0; up to 0.13.6 this library had a stereo pass-through stand-in); global`,
+    source: G('ChannelMergerNode'),
     strudel: 'yes',
     test: async (t) => {
       const m = new W.ChannelMergerNode(t.ctx, { numberOfInputs: 2 });
@@ -1588,8 +1581,7 @@ const channels: CoverageRow[] = [
       other.connect(t.ctx.destination);
       const rms = await gainOf(t, m);
       other.disconnect();
-      // A real merger puts a mono input on one channel (0.5 after the analyser's downmix); the stereo pass-through
-      // passes it on both (1.0).
+      // A real merger puts a mono input on one channel (0.5 after the analyser's downmix).
       t.expect(rms > 0.4, `rms ${fmt(rms)}`);
       return `passes signal (${fmt(rms)})`;
     },
@@ -1597,9 +1589,9 @@ const channels: CoverageRow[] = [
   row({
     group: CH,
     name: '`ChannelSplitterNode` constructor',
-    covered: 'partial',
-    how: 'rn-web-audio-compat: an explicit-stereo pass-through GainNode; global',
-    source: '[channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts)',
+    covered: 'yes',
+    how: `${RNAA} (native since 1.0; up to 0.13.6 this library had a stereo pass-through stand-in); global`,
+    source: G('ChannelSplitterNode'),
     strudel: 'yes',
     test: async (t) => {
       const s = new W.ChannelSplitterNode(t.ctx, { numberOfOutputs: 2 });

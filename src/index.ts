@@ -19,7 +19,8 @@ export type { KernelEntry, KernelParam } from './kernels/nativeKernels';
 
 export { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
 export { FeedbackDelayNode } from './nodes/FeedbackDelayNode';
-export { ChannelMergerNode, ChannelSplitterNode } from './nodes/channelRoutingNodes';
+// ChannelMergerNode / ChannelSplitterNode: react-native-audio-api's own since 1.0 (re-exported for compatibility).
+export { ChannelMergerNode, ChannelSplitterNode } from 'react-native-audio-api';
 export { createFdnReverbNode } from './nodes/FdnReverbNode';
 export type { FdnReverbNode, FdnReverbParams } from './nodes/FdnReverbNode';
 

@@ -1,8 +1,8 @@
 # Findings: react-native-audio-api vs. the Web Audio API
 
 What we learned running browser Web Audio code (Strudel/superdough) on
-[react-native-audio-api](https://github.com/software-mansion/react-native-audio-api) 0.13.5, on real devices
-(iPhone, Pixel 10) and the Android emulator. Each item says what goes wrong, why, and what this library does about it.
+[react-native-audio-api](https://github.com/software-mansion/react-native-audio-api) 0.13.x, on real devices
+(iPhone, Pixel 10) and the Android emulator, and what changed with 1.0 (sections say so where they differ). Each item says what goes wrong, why, and what this library does about it.
 Source comments refer to these sections by name.
 
 Most of these fail **silently**: no exception and no log, the audio is just wrong. When something sounds off, check this
@@ -54,8 +54,10 @@ replaces graph-cycle delays.
 Once every upstream source of a node has stopped, react-native-audio-api stops processing the node. A delay or reverb
 whose input went silent is cut off instead of ringing out.
 
-Fix: `FeedbackDelayNode` and the FDN reverb keep a silent `ConstantSourceNode` connected (a "keep-alive") and stop it on
-`disconnect()`.
+Fix up to 0.13.6: `FeedbackDelayNode` and the FDN reverb kept a silent `ConstantSourceNode` connected (a "keep-alive").
+Since 1.0 a node can declare a tail (`requiresTailProcessing` + `computeTailFrames`), and this library's C++ kernel nodes
+do (30 s for delay and reverb). JS worklet nodes (react-native-audio-worklets) still have no tail, so in JS-processor mode
+`FeedbackDelayNode` still uses the keep-alive and stops it on `disconnect()`.
 
 ## Fan-out: nodes process in place
 
@@ -73,11 +75,26 @@ order the graph happened to process the two consumers in.
 
 ## `onended` and leaked nodes
 
-react-native-audio-api only has camelCase `onEnded`. Browser code that registers cleanup with `node.onended = fn` sets a
+Fixed upstream in 1.0, which has a native `onended` (and `addEventListener('ended')`). This library's alias is gone: on
+1.0 it hid the real property, so nothing fired. Up to 0.13.6: react-native-audio-api only had camelCase `onEnded`. Browser code that registers cleanup with `node.onended = fn` sets a
 plain property that is never called, so every node it would have released leaks. In superdough that was every effect
 chain of every note: the graph grew by about two worklet nodes a second, timing drifted, and the app eventually crashed.
 
-Fix: `globals.ts` defines `onended` on `AudioScheduledSourceNode.prototype`, forwarding to `onEnded`.
+Fix up to 0.13.6: `globals.ts` defined `onended` on `AudioScheduledSourceNode.prototype`, forwarding to `onEnded`.
+
+## Audio-thread events stop after about six contexts (1.0.1)
+
+Every context claims a block of react-native-audio-api's event queue (256 entries) and never gives it back, so after
+about six contexts in the app's lifetime **every audio-thread event is silently dropped**: `onended`,
+`onpositionchanged` (which `createAudioClock` ticks on), everything. Upstream knows: a comment in
+`events/AudioEventHandlerRegistry.h` says the blocks "are never recycled", and raises the capacity only for its own
+test harness (`RN_AUDIO_API_NODE`: 8192). Found with the conformance suite, which makes a context per row: on a Pixel 10
+the 7th context got no events (bisected with a probe that re-ran the `onended` row after every row).
+
+Impact: none for an app with one long-lived context (rn-strudel's `initStrudel()` makes one). It bites anything that
+creates contexts repeatedly, e.g. a new context per play/stop. Workaround: keep one context for the app's lifetime. The
+conformance suite's three event rows (`onended`, `playbackRate`, `start(when, offset, duration)`) fail on 1.0.1 for this
+reason only; each passes when run in a fresh app.
 
 ## Browser globals and import order
 
@@ -97,9 +114,18 @@ and remember that satisfying one `typeof` guard can bring a previously dead code
 Like a browser context, a new react-native-audio-api `AudioContext` only starts rendering (and `currentTime` only
 advances) after `resume()` or once its first source starts.
 
-## Crashes fixed in the native patch
+## Crashes fixed in the native patch (up to 0.13.6)
 
-All reproduced on a device before fixing; see [native/README.md](../native/README.md) for the patched files.
+All reproduced on a device before fixing. Since 1.0 there is no patch (see [native/README.md](../native/README.md));
+status on 1.0.1 per item:
+
+- One worklet runtime per context: react-native-audio-worklets uses a single shared audio runtime, which was the fix.
+- Unlocked worklet runtime, dangling `AudioParam` inputs: the code involved was rewritten in 1.0 (worklets moved to their
+  own package; the graph was refactored). The conformance suite ran clean, but these need their original stress tests
+  (create/close cycles with worklet nodes; releasing LFO-modulated filters) before they count as fixed.
+- `ConvolverNode` before a buffer is set: fixed upstream (the convolver was redesigned); the conformance rows pass.
+
+Up to 0.13.6:
 
 - **One worklet runtime per context (GC crash).** `AudioContext` created a new worklet runtime for every context. When a
   closed context was collected, its runtime was destroyed while JS objects of its worklet nodes still referenced values
@@ -115,13 +141,15 @@ All reproduced on a device before fixing; see [native/README.md](../native/READM
   `AudioParam::processInputs`, after releasing an LFO-modulated filter).
 - **`ConvolverNode` before a buffer is set.** The render thread called `.at(0)` on an empty vector (`std::out_of_range`).
 
-## API bugs fixed in the patch
+## API bugs fixed in the patch (up to 0.13.6)
 
 Found by the conformance suite ([COVERAGE.md](../COVERAGE.md)):
 
-- `AudioParam.value` returned the old value right after a write, until the audio thread caught up.
-- `WaveShaperNode` ignored a `curve` passed to its constructor, and the `curve` getter always returned `null`.
-- `new PeriodicWave(ctx, { real, imag })` threw for plain number arrays.
+- `AudioParam.value` returned the old value right after a write, until the audio thread caught up. **Still so in
+  1.0.1**; since 1.0 `globals.ts` fixes it in JS (the setter remembers the value; automation calls forget it).
+- `WaveShaperNode` ignored a `curve` passed to its constructor, and the `curve` getter always returned `null`. Fixed
+  upstream in 1.0.
+- `new PeriodicWave(ctx, { real, imag })` threw for plain number arrays. Fixed upstream in 1.0.
 
 ## Android
 

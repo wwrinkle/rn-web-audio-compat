@@ -35,7 +35,7 @@ lines.push(
 );
 lines.push('');
 lines.push('- **Covered?** Yes / Partial (works with a documented limit) / No.');
-lines.push('- **How**: `react-native-audio-api` = provided by that library as is (sometimes with a fix from this library\'s patch); rn-web-audio-compat = added by this library.');
+lines.push('- **How**: `react-native-audio-api` = provided by that library (nothing in it is patched); rn-web-audio-compat = added by this library.');
 lines.push('- **Strudel?** Yes = used by normal Strudel patterns; Opt-in = only by a niche feature (audio device selection, visualisations, offline render); No = unused.');
 lines.push('- **Savings left?** Remaining audio-thread CPU savings, and ones already made.');
 lines.push('');

@@ -5,7 +5,7 @@
 Every piece of the standard Web Audio API, with whether a React Native app gets it through rn-web-audio-compat (on top of react-native-audio-api 0.13.6), how, where, and whether Strudel/superdough uses it. Each implemented row has a self-test: the example app runs it on React Native, and the web demo runs the identical test against the browser's own Web Audio API as the reference (one button per row in both; rows marked No have a disabled button).
 
 - **Covered?** Yes / Partial (works with a documented limit) / No.
-- **How**: `react-native-audio-api` = provided by that library as is (sometimes with a fix from this library's patch); rn-web-audio-compat = added by this library.
+- **How**: `react-native-audio-api` = provided by that library (nothing in it is patched); rn-web-audio-compat = added by this library.
 - **Strudel?** Yes = used by normal Strudel patterns; Opt-in = only by a niche feature (audio device selection, visualisations, offline render); No = unused.
 - **Savings left?** Remaining audio-thread CPU savings, and ones already made.
 
@@ -25,10 +25,10 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `createBiquadFilter()` | Yes | react-native-audio-api; returns an explicit-stereo node (fan-out safe) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | — | Yes |
 | `createBuffer()` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `createBufferSource()` | Yes | react-native-audio-api | — | Yes | — | Yes |
-| `createChannelMerger()` | Partial | rn-web-audio-compat; see ChannelMergerNode | [globals.ts](src/globals.ts) (`createChannelMerger`) | No | — | Yes |
-| `createChannelSplitter()` | Partial | rn-web-audio-compat; see ChannelSplitterNode | [globals.ts](src/globals.ts) (`createChannelSplitter`) | No | — | Yes |
+| `createChannelMerger()` | Partial | react-native-audio-api | — | No | — | Yes |
+| `createChannelSplitter()` | Partial | react-native-audio-api | — | No | — | Yes |
 | `createConstantSource()` | Yes | react-native-audio-api | — | No | — | Yes |
-| `createConvolver()` | Yes | react-native-audio-api (patched against a render-thread crash); see ConvolverNode | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | Done: see ConvolverNode | Yes |
+| `createConvolver()` | Yes | react-native-audio-api (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); see ConvolverNode | — | Yes | Done: see ConvolverNode | Yes |
 | `createDelay()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | No | — | Yes |
 | `createDynamicsCompressor()` | Yes | rn-web-audio-compat; see DynamicsCompressorNode | [globals.ts](src/globals.ts) (`createDynamicsCompressor`) | No | — | Yes |
 | `createGain()` | Yes | react-native-audio-api; explicit-stereo | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | — | Yes |
@@ -83,14 +83,14 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `connect(node)` | Yes | react-native-audio-api; a connection that would create a cycle, or a duplicate, is silently ignored (no error) | — | Yes | — | Yes |
 | `connect(node, output, input)` | Partial | react-native-audio-api ignores the index arguments (fine for stereo routing) | — | Yes | — | Yes |
 | `connect(audioParam)` | Yes | react-native-audio-api | — | Yes | — | Yes |
-| `disconnect()` (all forms) | Yes | react-native-audio-api (patched: also releases AudioParam inputs; the unpatched library left a dangling pointer) | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | — | Yes |
+| `disconnect()` (all forms) | Yes | react-native-audio-api (releases AudioParam inputs; 1.0 rewrote the graph code that left a dangling pointer, which was a patch hunk up to 0.13.6) | — | Yes | — | Yes |
 
 ## AudioParam
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
 | `AudioParam` (global class, `instanceof`) | Yes | react-native-audio-api, global; `instanceof` also accepts rn-web-audio-compat's LiveAudioParam | [globals.ts](src/globals.ts) (`AudioParam`) | Yes | — | Yes |
-| `value` | Yes | react-native-audio-api | — | Yes | — | Yes |
+| `value` | Yes | react-native-audio-api; reading back a value just written is rn-web-audio-compat's (the library returns the old value until the audio thread applies it) | [globals.ts](src/globals.ts) (`AudioParam.value`) | Yes | — | Yes |
 | `defaultValue` / `minValue` / `maxValue` | Yes | react-native-audio-api | — | No | — | Yes |
 | `automationRate` | No | — (native params are a-rate, AudioWorkletNode params k-rate) | — | No | — | — |
 | `setValueAtTime()` | Yes | react-native-audio-api | — | Yes | — | Yes |
@@ -108,7 +108,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `AudioScheduledSourceNode` (global class) | Yes | react-native-audio-api, global | [globals.ts](src/globals.ts) (`AudioScheduledSourceNode`) | Yes | — | Yes |
 | `start()` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `stop()` | Yes | react-native-audio-api | — | Yes | — | Yes |
-| `onended` | Yes | rn-web-audio-compat alias to react-native-audio-api's `onEnded` (without it, browser-style cleanup never runs) | [globals.ts](src/globals.ts) (`onended`) | Yes | — | Yes |
+| `onended` | Yes | react-native-audio-api | — | Yes | — | Yes |
 
 ## AudioBuffer
 
@@ -138,7 +138,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `OscillatorNode.detune` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `OscillatorNode.type` | Yes | react-native-audio-api | — | Yes | — | Yes |
 | `OscillatorNode.setPeriodicWave()` | Yes | react-native-audio-api | — | Yes | — | Yes |
-| `PeriodicWave` (constructor / `disableNormalization`) | Yes | react-native-audio-api (patched: plain number arrays, as the spec allows, used to throw); global | [globals.ts](src/globals.ts) (`PeriodicWave`), [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | — | Yes |
+| `PeriodicWave` (constructor / `disableNormalization`) | Yes | react-native-audio-api (plain number arrays, as the spec allows) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); global | [globals.ts](src/globals.ts) (`PeriodicWave`) | Yes | — | Yes |
 
 ## GainNode, StereoPannerNode, ConstantSourceNode, DelayNode
 
@@ -168,15 +168,15 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `ConvolverNode.buffer` | Partial | react-native-audio-api (patched). Set `buffer` BEFORE connecting the node's output: an unpatched convolver processed without an impulse response crashes on the audio thread, and replacing the buffer of a running convolver can still race inside the library. Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
+| `ConvolverNode.buffer` | Partial | react-native-audio-api. 1.0 redesigned the convolver: processing before a buffer is set no longer crashes (it did up to 0.13.6, which this library patched). Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | — | Yes | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
 | `ConvolverNode.normalize` | Yes | react-native-audio-api; its normalization matches the Web Audio spec formula within about 1 dB | — | Yes | — | Yes |
 
 ## WaveShaperNode
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `WaveShaperNode` constructor | Yes | react-native-audio-api (patched: a `curve` in the constructor options used to be ignored); the global is an explicit-stereo subclass | [globals.ts](src/globals.ts) (`WaveShaperNode`), [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | — | Yes |
-| `WaveShaperNode.curve` | Partial | react-native-audio-api (patched: the getter always returned null); can only be set once per node; input is clamped to [-1, 1] | [rnaa.patch](native/rnaa-0.13.6/rnaa.patch) | Yes | — | Yes |
+| `WaveShaperNode` constructor | Yes | react-native-audio-api (a `curve` in the constructor options) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); the global is an explicit-stereo subclass | [globals.ts](src/globals.ts) (`WaveShaperNode`) | Yes | — | Yes |
+| `WaveShaperNode.curve` | Partial | react-native-audio-api (the getter) (fixed upstream in 1.0; up to 0.13.6 this was a patch hunk); can only be set once per node; input is clamped to [-1, 1] | — | Yes | — | Yes |
 | `WaveShaperNode.oversample` | Yes | react-native-audio-api | — | No | — | Yes |
 
 ## AnalyserNode
@@ -194,7 +194,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `DynamicsCompressorNode` constructor | Yes | rn-web-audio-compat: a C++ kernel on a patched WorkletProcessingNode (JS worklet fallback); global | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](native/rnaa-0.13.6/files/common/cpp/audioapi/dsp/rnwac/Kernels.cpp) | Yes | — | Yes |
+| `DynamicsCompressorNode` constructor | Yes | rn-web-audio-compat: a C++ kernel in this library's own native node (JS worklet fallback); global | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts), [Kernels.cpp](common/cpp/rnwac/Kernels.cpp) | Yes | — | Yes |
 | `threshold` / `knee` / `ratio` / `attack` / `release` | Yes | rn-web-audio-compat: AudioParam-like params read by the kernel | [DynamicsCompressorNode.ts](src/nodes/DynamicsCompressorNode.ts) | Yes | — | Yes |
 | `reduction` | No | — | — | No | — | — |
 
@@ -202,8 +202,8 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|
-| `ChannelMergerNode` constructor | Partial | rn-web-audio-compat: an explicit-stereo pass-through GainNode (no per-channel routing; the library ignores connect() indices); global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
-| `ChannelSplitterNode` constructor | Partial | rn-web-audio-compat: an explicit-stereo pass-through GainNode; global | [channelRoutingNodes.ts](src/nodes/channelRoutingNodes.ts) | Yes | — | Yes |
+| `ChannelMergerNode` constructor | Yes | react-native-audio-api (native since 1.0; up to 0.13.6 this library had a stereo pass-through stand-in); global | [globals.ts](src/globals.ts) (`ChannelMergerNode`) | Yes | — | Yes |
+| `ChannelSplitterNode` constructor | Yes | react-native-audio-api (native since 1.0; up to 0.13.6 this library had a stereo pass-through stand-in); global | [globals.ts](src/globals.ts) (`ChannelSplitterNode`) | Yes | — | Yes |
 
 ## PannerNode and AudioListener (3D spatialization)
 
@@ -255,9 +255,9 @@ Counted per row (rows that group several members count once). Partial counts as 
 
 | Scope | Rows | Yes | Partial | No | Coverage | Present at all |
 |---|---|---|---|---|---|---|
-| Whole standard Web Audio API | 140 | 91 | 18 | 31 | **71%** | 78% |
-| What Strudel uses in normal patterns | 74 | 62 | 12 | 0 | **92%** | 100% |
-| What Strudel uses, including opt-in features | 82 | 68 | 12 | 2 | **90%** | 98% |
+| Whole standard Web Audio API | 140 | 93 | 16 | 31 | **72%** | 78% |
+| What Strudel uses in normal patterns | 74 | 64 | 10 | 0 | **93%** | 100% |
+| What Strudel uses, including opt-in features | 82 | 70 | 10 | 2 | **91%** | 98% |
 
 The biggest gaps (3D spatialization, media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough's worklet processors, reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)'s own COVERAGE.md.
 

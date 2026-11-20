@@ -13,13 +13,13 @@
 //    otherwise process IN PLACE on their input's buffer, and a node's "already processed this quantum" cache hands a
 //    second consumer its own never-written buffer, so fan-out silences or corrupts the signal. installWebAudioCompat
 //    does the same for the context's create*() methods.
-//  - Adds the missing node types: ChannelMergerNode / ChannelSplitterNode (stereo pass-through only) and
-//    DynamicsCompressorNode, and an IIRFilterNode constructor (react-native-audio-api only has createIIRFilter()).
-//  - Adds createChannelMerger() / createChannelSplitter() / createDynamicsCompressor() and `onstatechange` to contexts.
+//  - Adds the missing node types: DynamicsCompressorNode, and an IIRFilterNode constructor (react-native-audio-api only
+//    has createIIRFilter()). ChannelMergerNode / ChannelSplitterNode / PannerNode / AudioListener are its own since 1.0.
+//  - Adds createDynamicsCompressor() and `onstatechange` to contexts.
 //  - OfflineAudioContext fires `oncomplete` (react-native-audio-api only resolves the startRendering() promise) and has
 //    `length`.
-//  - `node.onended = fn` works (react-native-audio-api only has camelCase `onEnded`; without the alias, cleanup code
-//    registered the browser way never runs and every node leaks).
+//  - `param.value` reads back what was just written (react-native-audio-api returns the old value until the audio
+//    thread has applied the change, so `p.value = 3; p.value` gave the previous value).
 //  - `x instanceof AudioParam` is also true for this library's LiveAudioParam (automatable params of JS worklet and
 //    kernel nodes), so code that walks a node's params finds them.
 
@@ -32,18 +32,21 @@ import {
   AudioScheduledSourceNode,
   AudioBuffer,
   AudioBufferSourceNode,
+  AudioListener,
   AnalyserNode,
   BiquadFilterNode,
+  ChannelMergerNode,
+  ChannelSplitterNode,
   ConstantSourceNode,
   ConvolverNode,
   DelayNode,
   GainNode,
   OscillatorNode,
+  PannerNode,
   PeriodicWave,
   StereoPannerNode,
   WaveShaperNode,
 } from 'react-native-audio-api';
-import { ChannelMergerNode, ChannelSplitterNode } from './nodes/channelRoutingNodes';
 import { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
 import { LiveAudioParam } from './worklet/liveAudioParam';
 
@@ -114,6 +117,8 @@ setGlobalIfMissing('ConstantSourceNode', ConstantSourceNode);
 setGlobalIfMissing('ConvolverNode', ConvolverNode);
 setGlobalIfMissing('IIRFilterNode', IIRFilterNode);
 setGlobalIfMissing('OscillatorNode', OscillatorNode);
+setGlobalIfMissing('PannerNode', PannerNode);
+setGlobalIfMissing('AudioListener', AudioListener);
 setGlobalIfMissing('GainNode', explicitStereo(GainNode));
 setGlobalIfMissing('StereoPannerNode', explicitStereo(StereoPannerNode));
 setGlobalIfMissing('WaveShaperNode', explicitStereo(WaveShaperNode));
@@ -127,12 +132,6 @@ setGlobalIfMissing('DynamicsCompressorNode', DynamicsCompressorNode);
 function defineIfMissing(target: object, name: string, value: unknown): void {
   if (!(name in target)) Object.defineProperty(target, name, { value, writable: true, configurable: true });
 }
-defineIfMissing(BaseAudioContext.prototype, 'createChannelMerger', function (this: BaseAudioContext, numberOfInputs = 6) {
-  return new ChannelMergerNode(this, { numberOfInputs });
-});
-defineIfMissing(BaseAudioContext.prototype, 'createChannelSplitter', function (this: BaseAudioContext, numberOfOutputs = 6) {
-  return new ChannelSplitterNode(this, { numberOfOutputs });
-});
 defineIfMissing(BaseAudioContext.prototype, 'createDynamicsCompressor', function (this: BaseAudioContext) {
   return new DynamicsCompressorNode(this);
 });
@@ -164,14 +163,44 @@ Object.defineProperty(AudioParam, Symbol.hasInstance, {
   configurable: true,
 });
 
-// Browser-style `onended`, calling back with the node as `this` like the DOM does.
-Object.defineProperty(AudioScheduledSourceNode.prototype, 'onended', {
-  configurable: true,
-  get(this: { __onended?: unknown }) {
-    return this.__onended ?? null;
-  },
-  set(this: { __onended?: ((ev: unknown) => void) | null; onEnded: unknown }, fn: ((ev: unknown) => void) | null) {
-    this.__onended = fn;
-    this.onEnded = fn ? (ev: unknown) => fn.call(this, ev) : null;
-  },
-});
+// Read-after-write for `AudioParam.value`, as in a browser: react-native-audio-api's getter reads the native param,
+// which only changes once the audio thread has applied the write, so `p.value = 3; p.value` returned the old value
+// (this was a react-native-audio-api patch hunk up to 0.13.6). The setter remembers the value it was given; any
+// automation call forgets it, so the getter falls back to the native (automated) value.
+const lastSet = new WeakMap<object, number>();
+const paramProto = AudioParam.prototype as unknown as Record<string, unknown>;
+const paramWrapped = Symbol.for('rn-web-audio-compat.paramReadAfterWrite');
+if (!paramProto[paramWrapped as unknown as string]) {
+  paramProto[paramWrapped as unknown as string] = true;
+  const valueDescriptor = Object.getOwnPropertyDescriptor(AudioParam.prototype, 'value');
+  if (valueDescriptor?.get && valueDescriptor.set) {
+    const nativeGet = valueDescriptor.get;
+    const nativeSet = valueDescriptor.set;
+    Object.defineProperty(AudioParam.prototype, 'value', {
+      configurable: true,
+      get(this: object) {
+        return lastSet.has(this) ? lastSet.get(this) : nativeGet.call(this);
+      },
+      set(this: object, v: number) {
+        nativeSet.call(this, v); // also schedules setValueAtTime(v, now), which clears lastSet below
+        lastSet.set(this, Number(v));
+      },
+    });
+    for (const method of [
+      'setValueAtTime',
+      'linearRampToValueAtTime',
+      'exponentialRampToValueAtTime',
+      'setTargetAtTime',
+      'setValueCurveAtTime',
+      'cancelScheduledValues',
+      'cancelAndHoldAtTime',
+    ]) {
+      const original = paramProto[method] as ((...args: unknown[]) => unknown) | undefined;
+      if (typeof original !== 'function') continue;
+      paramProto[method] = function (this: object, ...args: unknown[]) {
+        lastSet.delete(this);
+        return original.apply(this, args);
+      };
+    }
+  }
+}
