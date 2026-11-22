@@ -27,8 +27,9 @@ runs [Tone.js](https://tonejs.github.io) too (see [Tone.js](#tonejs) below). Not
 ## Status
 
 - **Android:** 122/122 conformance tests pass on a Pixel 10 with react-native-audio-api 1.0.1, the same as in Chrome.
-- **iOS:** 122/122 on an iPhone 13 (iOS 26.5) with react-native-audio-api 1.0.1. The Tone.js worklet effects, native
-  delay and feedback, `FdnReverb`, `TimeStretchPlayer` and `QueuePlayer` have so far run only on Android and in Chrome.
+- **iOS:** 122/122 on an iPhone 13 (iOS 26.5) with react-native-audio-api 1.0.1, the same as in Chrome.
+- **Tone.js:** all 52 device checks pass on the Pixel 10 and the iPhone 13, including the worklet effects, native delay
+  and feedback, `FdnReverb`, `TimeStretchPlayer` and `QueuePlayer`.
 - **Known upstream issue:** on 1.0.1, audio-thread events stop after a few contexts
   ([#1487](https://github.com/software-mansion/react-native-audio-api/issues/1487), fix in review).
 - **Distribution:** not published to npm. Install from GitHub.

@@ -59,7 +59,8 @@ stores each block and a return source plays it one render quantum later. Each br
 `DelayNode`'s param bridge connects to the outer owner node, which isn't rendered, so a signal connected to `delayTime`
 has no effect. With `delayTime` at 0 the node delays by its maximum, about 1 s with Tone's defaults, which made `Chorus`
 and `PingPongDelay` come in a second late. `rn-web-audio-compat/tone` replaces the delay behind Tone's `Delay` with the
-`modulated-delay` C++ kernel. The plain `DelayNode` global is unchanged. This has not been reported upstream yet.
+`modulated-delay` C++ kernel. The plain `DelayNode` global is unchanged. Reported upstream as
+[#1491](https://github.com/software-mansion/react-native-audio-api/issues/1491).
 
 ## No tail-time
 
@@ -124,7 +125,7 @@ says `yes` on a new react-native-audio-api, the fix is upstream: drop `needsEven
 
 ## Tone.js
 
-[Tone.js](https://tonejs.github.io) 15.1.22 runs on this library (Pixel 10, react-native-audio-api 1.0.1: synths,
+[Tone.js](https://tonejs.github.io) 15.1.22 runs on this library (Pixel 10 and iPhone 13, react-native-audio-api 1.0.1: synths,
 `Sampler`, `Filter` with an `LFO`, `Compressor`, `PingPongDelay`, `Chorus`, `Panner3D`, `Reverb`, the transport, and
 exact timing for 90 s with the screen off). What it needed:
 
