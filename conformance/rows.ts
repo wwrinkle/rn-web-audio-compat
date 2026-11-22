@@ -1456,7 +1456,7 @@ const misc: CoverageRow[] = [
     group: MISC,
     name: '`DelayNode` constructor / `delayTime`',
     covered: 'yes',
-    how: `${RNAA}; the global is an explicit-stereo subclass. A feedback loop built from a DelayNode graph cycle does NOT work (the library drops cycle edges): use \`FeedbackDelayNode\``,
+    how: `${RNAA}; the global is an explicit-stereo subclass. A feedback loop built from a DelayNode graph cycle does NOT work (the library drops cycle edges): use \`FeedbackDelayNode\`. Signals connected to \`delayTime\` are ignored on 1.0.1; \`rn-web-audio-compat/tone\` uses a C++ delay for Tone`,
     source: G('DelayNode'),
     strudel: 'no',
     tone: 'opt-in',
@@ -2096,7 +2096,7 @@ const worklet: CoverageRow[] = [
     source: INSTALL,
     strudel: 'yes',
     tone: 'opt-in',
-    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`; loads the processor source from a Blob URL',
+    toneVia: '`ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`; `rn-web-audio-compat/tone` supplies native processors in place of its Blob URL',
     test: async (t) => {
       await t.env.prepareTestWorklet(t.ctx);
       return 'resolves';

@@ -23,6 +23,8 @@ export interface NativeKernelTiming {
 
 interface RnwacGlobals {
   __rnwacCreateKernelEffectNode?: (context: unknown, kernelId: number, params: number[], tailSeconds: number) => KernelHostObject;
+  __rnwacCreateKernelControlNode?: (context: unknown, kernelNode: unknown, paramIndex: number) => unknown;
+  __rnwacCreateFeedbackBridge?: (context: unknown) => { send: unknown; ret: unknown };
   __rnwacCreateKernelSourceNode?: (context: unknown, kernelId: number, params: number[]) => KernelHostObject;
   __rnwacKernelTimings?: () => NativeKernelTiming[];
   __rnwacResetKernelTimings?: () => void;
@@ -72,6 +74,33 @@ export function createKernelEffectNode(
   const host = requireNativeModule().__rnwacCreateKernelEffectNode(nativeContext(context), kernelId, params, tailSeconds);
   const node = new (audioApi().AudioNode)(context, host);
   return Object.assign(node, { setKernelParam: host.setKernelParam.bind(host), kernelId });
+}
+
+// A node that drives param `paramIndex` of a kernel effect node from its audio input (KernelNodes.h).
+export function createKernelControlNode(context: BaseAudioContext, kernelNode: AudioNode, paramIndex: number): AudioNode {
+  const kernelHost = (kernelNode as unknown as { node: unknown }).node;
+  const host = requireNativeModule().__rnwacCreateKernelControlNode(nativeContext(context), kernelHost, paramIndex);
+  return new (audioApi().AudioNode)(context, host);
+}
+
+// A feedback path with a one-quantum delay that the graph can't reject as a cycle (KernelNodes.h). `send` is rendered
+// through the destination, silently; `ret` is a started source.
+export function createFeedbackBridge(context: BaseAudioContext): { send: AudioNode; ret: AudioScheduledSourceNode; dispose: () => void } {
+  const hosts = requireNativeModule().__rnwacCreateFeedbackBridge(nativeContext(context));
+  const api = audioApi();
+  const send = new api.AudioNode(context, hosts.send);
+  const ret = new api.AudioScheduledSourceNode(context, hosts.ret);
+  send.connect(context.destination);
+  ret.start();
+  return {
+    send,
+    ret,
+    dispose: () => {
+      ret.stop();
+      ret.disconnect();
+      send.disconnect();
+    },
+  };
 }
 
 export function createKernelSourceNode(

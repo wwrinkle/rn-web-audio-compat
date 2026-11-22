@@ -17,7 +17,7 @@ own nodes and host objects), then our JS. Report upstream bugs upstream. A patch
 | Path | What |
 | --- | --- |
 | `common/cpp/rnwac/Kernels.{h,cpp}`, `KernelUtil.h` | The kernels and their registry. Plain C++, no react-native-audio-api types |
-| `common/cpp/rnwac/KernelNodes.{h,cpp}` | `KernelEffectNode` (subclasses `audioapi::AudioNode`) and `KernelSourceNode` (`audioapi::AudioScheduledSourceNode`) |
+| `common/cpp/rnwac/KernelNodes.{h,cpp}` | `KernelEffectNode` (subclasses `audioapi::AudioNode`), `KernelSourceNode` (`audioapi::AudioScheduledSourceNode`), `KernelControlNode`, and the feedback bridge (`FeedbackSendNode`, `FeedbackReturnNode`) |
 | `common/cpp/rnwac/KernelNodeHostObjects.{h,cpp}` | Their JS handles: react-native-audio-api's node host objects plus `setKernelParam(i, v)` and `kernelId` |
 | `common/cpp/rnwac/Installer.{h,cpp}` | The `__rnwac*` JSI globals (create nodes, kernel timings) |
 | `common/cpp/rnwac/NativeWebAudioCompatModule.*`, `src/specs/` | The pure C++ TurboModule whose `install()` puts those globals on the runtime |
@@ -74,8 +74,19 @@ Built-in kernels, ids 1-99:
 | 1 | `feedback-delay` | Feedback delay line |
 | 2 | `compressor` | Compressor |
 | 3 | `fdn-reverb` | 8-line feedback-delay-network reverb |
+| 4 | `bit-crusher` | Bit-depth reduction (Tone's `BitCrusher`) |
+| 5 | `feedback-comb-filter` | Feedback comb filter (Tone's `FeedbackCombFilter`), 30 s tail |
+| 6 | `modulated-delay` | Interpolated delay whose `delayTime` accepts connected signals |
 
 Each kernel has a JS processor that serves as its spec: `src/processors/*`.
+
+Two helper nodes support them:
+
+- **Control node** (`createKernelControlNode`): a `ConstantSource`'s `offset` feeds a node that stores the first sample of
+  each block for one kernel param and outputs silence. That gives the param real `AudioParam` automation and modulation
+  at block rate.
+- **Feedback bridge** (`createFeedbackBridge`): a send node stores each block and a return source plays it one quantum
+  later, which closes a loop the graph would otherwise reject. Each pass adds 128 frames.
 
 On the JS side, `registerKernel(name, { id, kind, module, extraParams, tailSeconds })` describes a kernel, and
 `createNativeKernelNode(ctx, name)` gives you a node running it. To have `new AudioWorkletNode(ctx, name)` use the

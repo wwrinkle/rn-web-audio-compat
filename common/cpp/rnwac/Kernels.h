@@ -30,6 +30,9 @@ enum BuiltinKernelId : int {
   kFeedbackDelay = 1,
   kCompressor = 2,
   kFdnReverb = 3,
+  kBitCrusher = 4,
+  kFeedbackCombFilter = 5,
+  kModulatedDelay = 6,
 };
 
 // Per-kernel-id on-device cost tracking (real audio-thread wall time around each runKernel call, see
@@ -98,6 +101,10 @@ bool registerKernel(int id, const char *name, KernelFn fn);
 
 // Name of a registered kernel, or nullptr.
 const char *kernelName(int id);
+
+// Allocates what kernel `id` needs up front, off the audio thread (called when its node is created). Most kernels do
+// nothing here.
+void prepareKernel(int id, KernelState &state, const double *params, double sampleRate);
 
 // Runs kernel `id` (zeroes the output if it isn't registered).
 void runKernel(

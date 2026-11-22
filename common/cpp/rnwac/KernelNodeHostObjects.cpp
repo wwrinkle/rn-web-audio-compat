@@ -46,6 +46,31 @@ JSI_PROPERTY_GETTER_IMPL(KernelEffectNodeHostObject, kernelId) {
   return {kernelNode_->kernelId()};
 }
 
+KernelControlNodeHostObject::KernelControlNodeHostObject(
+    const std::shared_ptr<audioapi::BaseAudioContext> &context,
+    const std::shared_ptr<KernelControls> &controls,
+    int paramIndex)
+    : audioapi::AudioNodeHostObject(
+          context->getGraph(),
+          std::make_unique<KernelControlNode>(context, controlNodeOptions(), controls, paramIndex),
+          controlNodeOptions()) {}
+
+FeedbackSendNodeHostObject::FeedbackSendNodeHostObject(
+    const std::shared_ptr<audioapi::BaseAudioContext> &context,
+    const std::shared_ptr<FeedbackBus> &bus)
+    : audioapi::AudioNodeHostObject(
+          context->getGraph(),
+          std::make_unique<FeedbackSendNode>(context, effectNodeOptions(0), bus),
+          effectNodeOptions(0)) {}
+
+FeedbackReturnNodeHostObject::FeedbackReturnNodeHostObject(
+    const std::shared_ptr<audioapi::BaseAudioContext> &context,
+    const std::shared_ptr<FeedbackBus> &bus)
+    : audioapi::AudioScheduledSourceNodeHostObject(
+          context->getGraph(),
+          std::make_unique<FeedbackReturnNode>(context, sourceNodeOptions(), bus),
+          sourceNodeOptions()) {}
+
 KernelSourceNodeHostObject::KernelSourceNodeHostObject(
     const std::shared_ptr<audioapi::BaseAudioContext> &context,
     int kernelId,

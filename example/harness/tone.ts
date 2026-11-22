@@ -4,12 +4,15 @@
 //  2. Many reverbs: Tone.Reverb renders its impulse response in a new OfflineAudioContext every time, and on
 //     react-native-audio-api 1.0.1 every context permanently takes a block of the event queue the audio clock runs on
 //     (docs/FINDINGS.md). After each reverb: does the transport still advance?
-//  3. Sequencing: Sequence, Part, Loop and Pattern (order, sample-clock times, stop/restart, pause, tempo, audible output).
-//  4. Timing: a STATUS line every 5 s comparing transport and sequencer events with the wall clock, driven by Tone's own
+//  3. Tone's AudioWorklet effects: BitCrusher, JCReverb, Freeverb, PluckSynth (C++ kernels under Tone's processor names).
+//     Feedback effects (FeedbackDelay, PingPongDelay, Chorus, PitchShift), TimeStretchPlayer and QueuePlayer.
+//  4. Sequencing: Sequence, Part, Loop and Pattern (order, sample-clock times, stop/restart, pause, tempo, audible output).
+//  5. Timing: a STATUS line every 5 s comparing transport and sequencer events with the wall clock, driven by Tone's own
 //     context (and so by the audio clock), for the screen-lock test.
 import 'rn-web-audio-compat/tone'; // before 'tone'
 import * as Tone from 'tone';
-import { getToneSetup, startTone } from 'rn-web-audio-compat/tone';
+import { getNativeTimings } from 'rn-web-audio-compat';
+import { FdnReverb, QueuePlayer, TimeStretchPlayer, getToneSetup, startTone } from 'rn-web-audio-compat/tone';
 import { describe, log, setLogTag, sleep, step, check } from './log';
 
 const BPM = 120;
@@ -38,6 +41,273 @@ function timingError(times: number[], offsets: number[]) {
   return Math.max(...offsets.map((offset, i) => Math.abs(times[i] - times[0] - offset)));
 }
 const TIMING_TOLERANCE = 0.002; // seconds
+
+// A measuring output that the graph keeps rendering, silent on the speakers.
+function measuringOutput() {
+  const meter = new Tone.Meter({ normalRange: true, smoothing: 0 });
+  const sink = new Tone.Gain(0).toDestination();
+  meter.connect(sink);
+  return { meter, dispose: () => (meter.dispose(), sink.dispose()) };
+}
+
+async function peakOver(meter: Tone.Meter, ms: number) {
+  let peak = 0;
+  for (let t = 0; t < ms; t += 25) {
+    await sleep(25);
+    peak = Math.max(peak, meter.getValue() as number);
+  }
+  return peak;
+}
+
+// A reverb must ring on after a short burst of noise has ended.
+async function reverbTail(effect: Tone.ToneAudioNode, minimum = 0.002) {
+  const { meter, dispose } = measuringOutput();
+  effect.connect(meter);
+  const noise = new Tone.Noise('white').connect(effect);
+  await sleep(200); // Tone creates the worklet nodes asynchronously
+  const now = Tone.now();
+  noise.start(now);
+  noise.stop(now + 0.1);
+  await sleep(350);
+  const tail = await peakOver(meter, 400);
+  noise.dispose();
+  effect.dispose();
+  dispose();
+  check(tail >= minimum, `tail level ${tail.toFixed(4)}`);
+  return tail;
+}
+
+async function workletEffects() {
+  await step('BitCrusher quantizes to its bit depth', async () => {
+    const crusher = new Tone.BitCrusher(2);
+    const waveform = new Tone.Waveform(1024);
+    const sink = new Tone.Gain(0).toDestination();
+    const oscillator = new Tone.Oscillator(220, 'sine').connect(crusher);
+    crusher.connect(waveform);
+    waveform.connect(sink);
+    oscillator.start();
+    await sleep(400);
+    const samples = Array.from(waveform.getValue() as Float32Array);
+    oscillator.dispose();
+    crusher.dispose();
+    waveform.dispose();
+    sink.dispose();
+    const levels = new Set(samples.map((x) => (Math.round(x * 100) / 100 + 0).toFixed(2)));
+    const peak = Math.max(...samples.map(Math.abs));
+    check(levels.size >= 3 && levels.size <= 5 && peak > 0.9, `${levels.size} levels, peak ${peak.toFixed(3)}`);
+    return levels.size;
+  });
+  await step('JCReverb rings after its input stops', () => reverbTail(new Tone.JCReverb({ roomSize: 0.6, wet: 1 })));
+  await step('Freeverb rings after its input stops', () => reverbTail(new Tone.Freeverb({ roomSize: 0.8, wet: 1 })));
+  await step('FdnReverb rings after its input stops', () => reverbTail(new FdnReverb({ decay: 3, wet: 1 })));
+  await step('FdnReverb: a longer decay rings longer', async () => {
+    const short = await reverbTail(new FdnReverb({ decay: 0.15, wet: 1 }), 0);
+    const changed = new FdnReverb({ decay: 0.15, wet: 1 });
+    changed.decay = 4;
+    const long = await reverbTail(changed);
+    check(long > short * 5, `short ${short.toFixed(4)}, long ${long.toFixed(4)}`);
+  });
+  await step('FdnReverb in a chain, wet 0 is dry', async () => {
+    const { meter, dispose } = measuringOutput();
+    const reverb = new FdnReverb({ decay: 3, wet: 0 });
+    const oscillator = new Tone.Oscillator(220, 'sine').chain(reverb, meter);
+    oscillator.start();
+    await sleep(300);
+    const dry = await peakOver(meter, 200);
+    oscillator.stop();
+    await sleep(300);
+    const after = await peakOver(meter, 200);
+    oscillator.dispose();
+    reverb.dispose();
+    dispose();
+    check(dry > 0.5 && after < 0.002, `dry ${dry.toFixed(3)}, after ${after.toFixed(4)}`);
+  });
+  await step('PluckSynth: plucks, and its scheduled release decays', async () => {
+    const { meter, dispose } = measuringOutput();
+    const pluck = new Tone.PluckSynth({ release: 0.4 }).connect(meter);
+    await sleep(200);
+    pluck.triggerAttackRelease('C4', 0.3, Tone.now() + 0.05);
+    const attack = await peakOver(meter, 300);
+    await sleep(900);
+    const released = await peakOver(meter, 200);
+    pluck.dispose();
+    dispose();
+    check(attack > 0.01 && released < attack * 0.05, `attack ${attack.toFixed(4)}, after release ${released.toFixed(4)}`);
+    return attack;
+  });
+  await step('Freeverb x20: create, render, dispose', async () => {
+    for (let i = 0; i < 20; i++) {
+      const reverb = new Tone.Freeverb();
+      const noise = new Tone.Noise('pink').connect(reverb);
+      reverb.toDestination();
+      reverb.wet.value = 0;
+      noise.volume.value = -60;
+      noise.start();
+      await sleep(60);
+      noise.dispose();
+      reverb.dispose();
+    }
+  });
+  await step('Freeverb cost', async () => {
+    const reverb = new Tone.Freeverb({ wet: 1 });
+    const { meter, dispose } = measuringOutput();
+    reverb.connect(meter);
+    const noise = new Tone.Noise('pink').connect(reverb).start();
+    await sleep(300);
+    const before = getNativeTimings().find((t) => t.name === 'feedback-comb-filter');
+    await sleep(2000);
+    const after = getNativeTimings().find((t) => t.name === 'feedback-comb-filter');
+    noise.dispose();
+    reverb.dispose();
+    dispose();
+    log(`comb filter: avg ${after?.avgUs?.toFixed(2)} us, max ${after?.maxUs?.toFixed(0)} us, blocks ${(after?.count ?? 0) - (before?.count ?? 0)} in 2 s`);
+    check(!!after && after.count > (before?.count ?? 0), 'the comb kernel rendered');
+  });
+}
+
+// Level in a window that only the effect's feedback can reach, after a short burst of noise.
+async function levelAfterBurst(effect: Tone.ToneAudioNode, fromMs: number, forMs: number) {
+  const { meter, dispose } = measuringOutput();
+  effect.connect(meter);
+  const noise = new Tone.Noise('white').connect(effect);
+  await sleep(150);
+  const now = Tone.now();
+  noise.start(now);
+  noise.stop(now + 0.03);
+  await sleep(100 + fromMs); // Tone.now() is 100 ms of lookahead ahead
+  const level = await peakOver(meter, forMs);
+  noise.dispose();
+  effect.dispose();
+  dispose();
+  return level;
+}
+
+async function feedbackCheck(make: (feedback: number) => Tone.ToneAudioNode, fromMs: number, forMs: number) {
+  const without = await levelAfterBurst(make(0), fromMs, forMs);
+  const repeats = await levelAfterBurst(make(0.75), fromMs, forMs);
+  check(repeats > 0.005 && repeats > without * 10, `with feedback ${repeats.toFixed(4)}, without ${without.toFixed(4)}`);
+  return repeats;
+}
+
+function sineBuffer(context: { createBuffer: (c: number, l: number, r: number) => any; sampleRate: number }, hz: number, seconds: number, startFrame = 0) {
+  const length = Math.round(seconds * context.sampleRate);
+  const buffer = context.createBuffer(1, length, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = 0.8 * Math.sin((2 * Math.PI * hz * (i + startFrame)) / context.sampleRate);
+  return buffer;
+}
+
+function frequencyOf(samples: Float32Array, sampleRate: number) {
+  let first = -1;
+  let last = -1;
+  let crossings = 0;
+  for (let i = 1; i < samples.length; i++) {
+    if (samples[i - 1] < 0 && samples[i] >= 0) {
+      const at = i - samples[i] / (samples[i] - samples[i - 1]);
+      if (first < 0) first = at;
+      last = at;
+      crossings++;
+    }
+  }
+  return crossings > 1 ? ((crossings - 1) * sampleRate) / (last - first) : 0;
+}
+
+async function playedFrequency(player: Tone.Player, rate: number) {
+  const waveform = new Tone.Waveform(4096);
+  const sink = new Tone.Gain(0).toDestination();
+  player.connect(waveform);
+  waveform.connect(sink);
+  player.playbackRate = rate;
+  player.start();
+  await sleep(800);
+  const hz = frequencyOf(waveform.getValue() as Float32Array, Tone.getContext().sampleRate);
+  player.dispose();
+  waveform.dispose();
+  sink.dispose();
+  return hz;
+}
+
+async function nativeExtensions(context: ReturnType<typeof getToneSetup>['context']) {
+  await step('FeedbackDelay repeats', () =>
+    feedbackCheck((feedback) => new Tone.FeedbackDelay({ delayTime: 0.15, feedback, wet: 1 }), 380, 250));
+  await step('PingPongDelay repeats', () =>
+    feedbackCheck((feedback) => new Tone.PingPongDelay({ delayTime: 0.15, feedback, wet: 1 }), 520, 300));
+  await step('Chorus feedback rings', () =>
+    feedbackCheck((feedback) => new Tone.Chorus({ frequency: 1, delayTime: 8, depth: 0.1, feedback, wet: 1 }).start(), 90, 60));
+  await step('PitchShift feedback repeats', () =>
+    feedbackCheck((feedback) => new Tone.PitchShift({ pitch: 0, delayTime: 0.1, windowSize: 0.05, feedback, wet: 1 }), 380, 200));
+  await step('Feedback effects x40: create, render, dispose', async () => {
+    const makers = [
+      () => new Tone.FeedbackDelay({ delayTime: 0.02, feedback: 0.7 }),
+      () => new Tone.PingPongDelay({ delayTime: 0.02, feedback: 0.7 }),
+      () => new Tone.Chorus({ frequency: 2, delayTime: 4, depth: 0.5, feedback: 0.5 }).start(),
+      () => new Tone.PitchShift({ pitch: 3, feedback: 0.3 }),
+    ];
+    const sink = new Tone.Gain(0).toDestination();
+    for (let i = 0; i < 40; i++) {
+      const effect = makers[i % makers.length]().connect(sink);
+      const noise = new Tone.Noise('pink').connect(effect).start();
+      await sleep(50);
+      noise.dispose();
+      effect.dispose();
+    }
+    sink.dispose();
+  });
+  await step('TimeStretchPlayer keeps pitch at 1.5x (a Player does not)', async () => {
+    const plain = await playedFrequency(new Tone.Player(sineBuffer(context, 440, 4) as unknown as AudioBuffer), 1.5);
+    const stretched = await playedFrequency(new TimeStretchPlayer(sineBuffer(context, 440, 4) as unknown as AudioBuffer), 1.5);
+    log(`playback at 1.5x: Player ${plain.toFixed(1)} Hz, TimeStretchPlayer ${stretched.toFixed(1)} Hz`);
+    check(Math.abs(plain - 660) < 15 && Math.abs(stretched - 440) < 15, `Player ${plain.toFixed(1)}, stretched ${stretched.toFixed(1)}`);
+  });
+  await step('QueuePlayer: gapless chunks, then onended', async () => {
+    const chunkSeconds = 0.25;
+    const chunks = 8;
+    const hz = 330;
+    const frames = Math.round(chunkSeconds * context.sampleRate);
+    let loads = 0;
+    let endedAt = 0;
+    const waveform = new Tone.Waveform(2048);
+    const sink = new Tone.Gain(0).toDestination();
+    waveform.connect(sink);
+    const player = new QueuePlayer({
+      load: async (index) => {
+        if (index >= chunks) return null;
+        loads++;
+        await sleep(5);
+        return sineBuffer(context, hz, chunkSeconds, index * frames);
+      },
+      onended: () => (endedAt = Date.now()),
+    });
+    player.connect(waveform);
+    const t0 = Date.now();
+    await player.start();
+    await sleep(350);
+    // A gap lowers the level of a 43 ms window; a discontinuity makes one sample-to-sample step too large.
+    let lowestRms = 1;
+    let largestStep = 0;
+    while (Date.now() - t0 < 1700) {
+      await sleep(20);
+      const samples = waveform.getValue() as Float32Array;
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) {
+        sum += samples[i] * samples[i];
+        if (i > 0) largestStep = Math.max(largestStep, Math.abs(samples[i] - samples[i - 1]));
+      }
+      lowestRms = Math.min(lowestRms, Math.sqrt(sum / samples.length));
+    }
+    for (let i = 0; i < 80 && !endedAt; i++) await sleep(25);
+    const seconds = (endedAt - t0) / 1000;
+    player.dispose();
+    waveform.dispose();
+    sink.dispose();
+    const expectedStep = (0.8 * 2 * Math.PI * hz) / context.sampleRate;
+    log(`queue: ${loads} chunks, lowest rms ${lowestRms.toFixed(3)}, largest step ${largestStep.toFixed(4)} (sine ${expectedStep.toFixed(4)}), ended after ${seconds.toFixed(2)} s`);
+    check(
+      loads === chunks && lowestRms > 0.5 && largestStep < expectedStep * 1.2 && Math.abs(seconds - chunks * chunkSeconds) < 0.4,
+      `${loads} chunks, rms ${lowestRms.toFixed(3)}, step ${largestStep.toFixed(4)}, ${seconds.toFixed(2)} s`
+    );
+  });
+}
 
 async function sequencing(fx: Tone.ToneAudioNode) {
   const transport = Tone.getTransport();
@@ -197,9 +467,6 @@ async function run() {
     check(p.positionX.value === 1, 'positionX 1');
     p.dispose();
   });
-  // Expected to fail: Tone loads this worklet's processor from a Blob URL (COVERAGE.md, Tone.js gaps).
-  await step('Freeverb (expected FAIL: Blob URL worklet)', () => new Tone.Freeverb().dispose());
-
   const fm = await step('FMSynth', () =>
     new Tone.FMSynth({
       harmonicity: 3.95,
@@ -255,6 +522,8 @@ async function run() {
     return rate;
   });
 
+  await workletEffects();
+  await nativeExtensions(context);
   await sequencing(fx);
 
   // 2. Many reverbs, each its own OfflineAudioContext.

@@ -268,6 +268,110 @@ void fdnReverb(
 // ---------------------------------------------------------------------------------------------------------------------
 // Registry. Filled once, on first use (thread-safe function-local static), before any kernel runs.
 
+// ---------------------------------------------------------------------------------------------------------------------
+// bitCrusher: params [bits]. Port of bitCrusherProcessor.ts (Tone.js's 'bit-crusher', MIT).
+void bitCrusher(const float *const *in, float *const *out, int channels, int frames, const double *p) {
+  const double bits = clampd(p[0], 1.0, 16.0);
+  const double step = std::pow(0.5, bits - 1.0);
+  for (int ch = 0; ch < channels; ++ch) {
+    for (int n = 0; n < frames; ++n) {
+      out[ch][n] = static_cast<float>(step * std::floor(static_cast<double>(in[ch][n]) / step + 0.5));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// feedbackCombFilter: params [delayTime, feedback]. Port of feedbackCombFilterProcessor.ts (Tone.js's
+// 'feedback-comb-filter', MIT): one second of delay per channel.
+void prepareCombFilter(KernelState &s, double sr) {
+  if (s.init) return;
+  const auto size = static_cast<size_t>(std::max(2.0, std::ceil(sr)));
+  for (auto &b : s.buf) {
+    b.assign(size, 0.0f);
+  }
+  s.writeIndex = 0;
+  s.init = true;
+}
+
+void feedbackCombFilter(
+    const float *const *in,
+    float *const *out,
+    int channels,
+    int frames,
+    const double *p,
+    KernelState &s,
+    double sr) {
+  prepareCombFilter(s, sr);
+  const int size = static_cast<int>(s.buf[0].size());
+  const int delay = std::min(static_cast<int>(std::floor(clampd(p[0], 0.0, 1.0) * sr)), size - 1);
+  const double feedback = clampd(p[1], 0.0, 0.9999);
+  const int ch2 = std::min(channels, kMaxChannels);
+  int write = s.writeIndex;
+  for (int n = 0; n < frames; ++n) {
+    int read = write - delay;
+    if (read < 0) read += size;
+    const int next = write + 1 >= size ? 0 : write + 1;
+    for (int ch = 0; ch < ch2; ++ch) {
+      std::vector<float> &b = s.buf[ch];
+      const double delayed = b[static_cast<size_t>(read)];
+      b[static_cast<size_t>(next)] = static_cast<float>(static_cast<double>(in[ch][n]) + delayed * feedback);
+      out[ch][n] = static_cast<float>(delayed);
+    }
+    write = next;
+  }
+  s.writeIndex = write;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// modulatedDelay: params [delayTime, maxDelaySeconds]. Port of modulatedDelayProcessor.ts. x[0] is the delay in frames at
+// the end of the last block (-1 before the first).
+void prepareModulatedDelay(KernelState &s, const double *p, double sr) {
+  if (s.init) return;
+  const double maxSeconds = p[1] > 0 ? p[1] : 1.0;
+  const auto size = static_cast<size_t>(std::ceil(maxSeconds * sr)) + 2;
+  for (auto &b : s.buf) {
+    b.assign(size, 0.0f);
+  }
+  s.writeIndex = 0;
+  s.x[0] = -1.0;
+  s.init = true;
+}
+
+void modulatedDelay(
+    const float *const *in,
+    float *const *out,
+    int channels,
+    int frames,
+    const double *p,
+    KernelState &s,
+    double sr) {
+  prepareModulatedDelay(s, p, sr);
+  const int size = static_cast<int>(s.buf[0].size());
+  const double maxSeconds = p[1] > 0 ? p[1] : 1.0;
+  const double target = clampd(p[0], 0.0, maxSeconds) * sr;
+  const double start = s.x[0] < 0 ? target : s.x[0];
+  const int ch2 = std::min(channels, kMaxChannels);
+  int write = s.writeIndex;
+  for (int n = 0; n < frames; ++n) {
+    const double delay = start + ((target - start) * (n + 1)) / frames;
+    double position = write - delay;
+    if (position < 0) position += size;
+    const int index = static_cast<int>(std::floor(position));
+    const double fraction = position - index;
+    const int nextIndex = index + 1 >= size ? 0 : index + 1;
+    for (int ch = 0; ch < ch2; ++ch) {
+      std::vector<float> &b = s.buf[ch];
+      b[static_cast<size_t>(write)] = in[ch][n];
+      const double a = b[static_cast<size_t>(index)];
+      const double c = b[static_cast<size_t>(nextIndex)];
+      out[ch][n] = static_cast<float>(a + (c - a) * fraction);
+    }
+    write = write + 1 >= size ? 0 : write + 1;
+  }
+  s.writeIndex = write;
+  s.x[0] = target;
+}
+
 struct Entry {
   const char *name = nullptr;
   KernelFn fn = nullptr;
@@ -288,10 +392,27 @@ void fdnReverbEntry(
   fdnReverb(in, out, channels, frames, p, s, sr);
 }
 
+void bitCrusherEntry(
+    const float *const *in, float *const *out, int channels, int frames, const double *p, KernelState &, double, double) {
+  bitCrusher(in, out, channels, frames, p);
+}
+void feedbackCombFilterEntry(
+    const float *const *in, float *const *out, int channels, int frames, const double *p, KernelState &s, double sr, double) {
+  feedbackCombFilter(in, out, channels, frames, p, s, sr);
+}
+
+void modulatedDelayEntry(
+    const float *const *in, float *const *out, int channels, int frames, const double *p, KernelState &s, double sr, double) {
+  modulatedDelay(in, out, channels, frames, p, s, sr);
+}
+
 bool initRegistry() {
   registerKernel(kFeedbackDelay, "feedback-delay", feedbackDelayEntry);
   registerKernel(kCompressor, "compressor", compressorEntry);
   registerKernel(kFdnReverb, "fdn-reverb", fdnReverbEntry);
+  registerKernel(kBitCrusher, "bit-crusher", bitCrusherEntry);
+  registerKernel(kFeedbackCombFilter, "feedback-comb-filter", feedbackCombFilterEntry);
+  registerKernel(kModulatedDelay, "modulated-delay", modulatedDelayEntry);
 #ifdef RNWAC_HAS_EXTENSIONS
   rnwac_ext::registerKernels();
 #endif
@@ -317,6 +438,11 @@ const char *kernelName(int id) {
   ensureRegistry();
   if (id <= 0 || id >= kMaxKernelIds) return nullptr;
   return g_registry[id].name;
+}
+
+void prepareKernel(int id, KernelState &state, const double *params, double sampleRate) {
+  if (id == kFeedbackCombFilter) prepareCombFilter(state, sampleRate);
+  if (id == kModulatedDelay) prepareModulatedDelay(state, params, sampleRate);
 }
 
 void runKernel(

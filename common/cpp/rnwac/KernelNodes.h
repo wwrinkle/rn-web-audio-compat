@@ -7,10 +7,19 @@
 #include <audioapi/compatibility/StableAPI.h>
 #include <rnwac/Kernels.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 namespace rnwac {
+
+// Param values written by KernelControlNodes and read by the kernel's runner, both on the audio thread. Shared ownership,
+// so either node can be released first.
+struct KernelControls {
+  double value[kMaxParams] = {};
+  bool active[kMaxParams] = {};
+};
 
 // Shared by both node kinds: the kernel id, its flat params and state, plus the per-node scratch input (react-native-
 // audio-api 1.0 processes in place, so input and output are the same buffer; kernels need `out` not to alias `in`).
@@ -29,8 +38,17 @@ class KernelRunner {
     return kernelId_;
   }
 
+  [[nodiscard]] const std::shared_ptr<KernelControls> &controls() const {
+    return controls_;
+  }
+
+  void prepare(double sampleRate) {
+    prepareKernel(kernelId_, state_, params_, sampleRate);
+  }
+
  private:
   const int kernelId_;
+  const std::shared_ptr<KernelControls> controls_ = std::make_shared<KernelControls>();
   double params_[kMaxParams] = {};
   KernelState state_;
   std::vector<float> scratch_[kMaxChannels];
@@ -55,6 +73,10 @@ class KernelEffectNode : public audioapi::AudioNode {
 
   [[nodiscard]] int kernelId() const {
     return runner_.kernelId();
+  }
+
+  [[nodiscard]] const std::shared_ptr<KernelControls> &controls() const {
+    return runner_.controls();
   }
 
  protected:
@@ -93,6 +115,65 @@ class KernelSourceNode : public audioapi::AudioScheduledSourceNode {
   KernelRunner runner_;
 };
 
+// Drives one kernel param from the audio graph. Connected source -> control node -> kernel node, it runs before the kernel,
+// stores its input's first sample of the block as the param (k-rate) and outputs silence. With a ConstantSourceNode as the
+// source, the kernel param gets a real AudioParam: automation and modulation inputs work, which setKernelParam can't do.
+class KernelControlNode : public audioapi::AudioNode {
+ public:
+  KernelControlNode(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const audioapi::AudioNodeOptions &options,
+      std::shared_ptr<KernelControls> controls,
+      int paramIndex);
+  DELETE_COPY_AND_MOVE(KernelControlNode);
+
+ protected:
+  void processNode(int framesToProcess) override;
+
+ private:
+  const std::shared_ptr<KernelControls> controls_;
+  const int paramIndex_;
+};
+
+// A feedback loop the audio graph can't reject: react-native-audio-api drops any connection that closes a cycle. The send
+// node stores each block and outputs silence (connect it to the destination so it is rendered); the return node, a source
+// with no graph edge from the send, plays that block one render quantum later: the delay Web Audio gives a cycle.
+struct FeedbackBus {
+  float samples[2][2][audioapi::RENDER_QUANTUM_SIZE] = {};
+  size_t blockFrame[2] = {SIZE_MAX, SIZE_MAX};
+};
+
+class FeedbackSendNode : public audioapi::AudioNode {
+ public:
+  FeedbackSendNode(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const audioapi::AudioNodeOptions &options,
+      std::shared_ptr<FeedbackBus> bus);
+  DELETE_COPY_AND_MOVE(FeedbackSendNode);
+
+ protected:
+  void processNode(int framesToProcess) override;
+
+ private:
+  const std::shared_ptr<FeedbackBus> bus_;
+};
+
+class FeedbackReturnNode : public audioapi::AudioScheduledSourceNode {
+ public:
+  FeedbackReturnNode(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const audioapi::AudioScheduledSourceNodeOptions &options,
+      std::shared_ptr<FeedbackBus> bus);
+  DELETE_COPY_AND_MOVE(FeedbackReturnNode);
+
+ protected:
+  void processNode(int framesToProcess) override;
+
+ private:
+  const std::shared_ptr<FeedbackBus> bus_;
+};
+
+audioapi::AudioNodeOptions controlNodeOptions();
 audioapi::AudioNodeOptions effectNodeOptions(int tailFrames);
 audioapi::AudioScheduledSourceNodeOptions sourceNodeOptions();
 

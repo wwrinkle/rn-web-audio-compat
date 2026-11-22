@@ -49,6 +49,18 @@ normally and the edge simply isn't there: one echo, no repeats.
 Fix: effects with feedback keep their loop inside one node. `FeedbackDelayNode` (a C++ kernel with its own delay line)
 replaces graph-cycle delays.
 
+The check is node-level, so a cycle through a `ChannelMergerNode` or `ChannelSplitterNode` is dropped too. Tone builds its
+feedback effects from such cycles, so `rn-web-audio-compat/tone` closes each loop with a feedback bridge: a send node
+stores each block and a return source plays it one render quantum later. Each bridge adds 128 frames (about 2.7 ms at
+48 kHz) per pass, and `PingPongDelay` has two bridges per round trip.
+
+## `DelayNode.delayTime` ignores connected signals (1.0.1)
+
+`DelayNode`'s param bridge connects to the outer owner node, which isn't rendered, so a signal connected to `delayTime`
+has no effect. With `delayTime` at 0 the node delays by its maximum, about 1 s with Tone's defaults, which made `Chorus`
+and `PingPongDelay` come in a second late. `rn-web-audio-compat/tone` replaces the delay behind Tone's `Delay` with the
+`modulated-delay` C++ kernel. The plain `DelayNode` global is unchanged. This has not been reported upstream yet.
+
 ## No tail-time
 
 Once every upstream source of a node has stopped, react-native-audio-api stops processing the node. A delay or reverb
@@ -129,10 +141,13 @@ exact timing for 90 s with the screen off). What it needed:
   They are now `KernelParam`s, which the global `AudioParam` accepts, with the members `Param` reads (`defaultValue`,
   `minValue`, `maxValue`, `setTargetAtTime`, `cancelAndHoldAtTime`). Kernel params apply automation at the call, not
   at its scheduled time.
-- **Not working: Tone's AudioWorklet classes** (`Freeverb`, `JCReverb`, `PluckSynth` through `FeedbackCombFilter`;
-  `BitCrusher`). They load their processor source from a Blob URL (`URL.createObjectURL` doesn't exist here, and
-  `addModule()` loads no code anyway). Porting their processors with `registerWorkletProcessor` /
-  `registerNativeProcessor` under Tone's processor names would make them work.
+- **Tone's AudioWorklet classes run on C++ kernels** (`Freeverb`, `JCReverb`, `PluckSynth` through `FeedbackCombFilter`;
+  `BitCrusher`). They load their processor source from a Blob URL, which can't work here (`addModule()` loads no code),
+  so `installToneWorklets()` registers native processors under Tone's names and overrides `Context`'s worklet methods.
+  Their params go through a `ConstantSource` into a control node, so they take real automation and modulation.
+- **Starting after a tempo change:** `transport.seconds` and ticks disagree after a tempo change, so a relative start
+  like `'+0.1'` can land over a second late. Chrome does the same, so it's Tone's behavior. Start on a musical position,
+  such as the next bar.
 - **`Panner3D`'s default `'HRTF'`** is ignored: react-native-audio-api 1.0.1 only has `'equalpower'`, and `panningModel`
   keeps reading back `'equalpower'`.
 - **Sequencing works:** `Sequence`, `Part`, `Loop` and `Pattern` pass on the Pixel 10 (order, timing within 2 ms of the

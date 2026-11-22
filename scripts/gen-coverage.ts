@@ -83,12 +83,11 @@ lines.push(
 );
 lines.push('');
 lines.push(
-  'Tone.js reaches further than Strudel. Its gaps here: its AudioWorklet classes (`FeedbackCombFilter`, so ' +
-    '`Freeverb`, `JCReverb` and `PluckSynth`, and `BitCrusher`), which load their processors from a Blob URL that ' +
-    '`addModule()` can\'t load; `Panner3D`\'s `\'HRTF\'` model, which renders as `\'equalpower\'`; ' +
+  'Tone.js reaches further than Strudel. Its gaps here: `Panner3D`\'s `\'HRTF\'` model, which renders as `\'equalpower\'`; ' +
     '`Compressor.reduction`; and the opt-in `UserMedia` and `Recorder`. Tone also needs its context and clock set up ' +
     'for React Native (it makes a context as it loads, and its timer clock stops with the screen locked): ' +
-    '`rn-web-audio-compat/tone` does both (README.md, "Tone.js").'
+    '`rn-web-audio-compat/tone` does both, and runs Tone\'s AudioWorklet classes (`Freeverb`, `JCReverb`, ' +
+    '`PluckSynth`, `BitCrusher`) and feedback delays on C++ nodes (README.md, "Tone.js").'
 );
 lines.push('');
 lines.push('## Beyond the standard API');

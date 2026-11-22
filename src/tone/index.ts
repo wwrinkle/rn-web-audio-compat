@@ -7,7 +7,7 @@
 //
 //   await startTone(); // in place of Tone.start(); from a user action, as in a browser
 //
-// Two things Tone.js can't do on its own here (both found on a Pixel 10; docs/FINDINGS.md "Tone.js"):
+// Five things Tone.js can't do on its own here (both found on a Pixel 10; docs/FINDINGS.md "Tone.js"):
 //  - Its index module makes a context as it loads (`export const Transport = getContext().transport`). Left alone, that
 //    is a second native AudioContext, wrapped by standardized-audio-context, and on react-native-audio-api 1.0.1 every
 //    context permanently uses up one of the app's few event-queue slots. So this module, loaded first, makes the app's
@@ -15,6 +15,12 @@
 //  - Its clock is a Worker or setTimeout, and React Native's JS timers stop with the screen locked (Android). With
 //    clockSource 'offline' Tone starts no timer of its own; startTone() emits its 'tick' from createAudioClock, which the
 //    audio thread drives.
+//  - Its AudioWorklet effects load their processors from a Blob URL. installToneWorklets() registers C++ versions under
+//    the same names, so BitCrusher, FeedbackCombFilter, JCReverb, Freeverb and PluckSynth work unchanged.
+//  - Its feedback effects build a graph cycle, which react-native-audio-api silently drops. installToneFeedback() closes
+//    those loops through a native bridge, so FeedbackDelay, PingPongDelay, Chorus and PitchShift repeat.
+//  - react-native-audio-api's DelayNode ignores signals on delayTime. installToneDelay() gives Tone a C++ delay that
+//    follows them.
 //
 // The web build of this module (index.web.ts) has the same exports on stock Tone.js, so app code needs no platform
 // checks.
@@ -25,6 +31,13 @@ import { Context } from 'tone/build/esm/core/context/Context.js';
 import { createAudioClock, type AudioClock } from '../clock/audioClock';
 import { startBackgroundPlayback, type PlaybackNotificationInfo } from '../playback/backgroundPlayback';
 import { installWebAudioCompat } from '../worklet/AudioWorkletNode';
+import { installToneDelay } from './toneDelay';
+import { installToneFeedback } from './toneFeedback';
+import { installToneWorklets } from './toneWorklets';
+
+export { FdnReverb, type FdnReverbOptions } from './FdnReverb';
+export { QueuePlayer, type QueuePlayerOptions, type QueueChunkLoader } from './QueuePlayer';
+export { TimeStretchPlayer } from './TimeStretchPlayer';
 
 export interface StartToneOptions {
   // Android: show the playback notification that keeps audio running with the screen locked (default true). An object
@@ -41,6 +54,9 @@ export interface ToneSetup {
   toneContext: Context;
 }
 
+installToneWorklets();
+installToneFeedback();
+installToneDelay();
 const context = new AudioContext();
 installWebAudioCompat(context);
 const toneContext = new Context({ context: context as any, clockSource: 'offline', lookAhead: 0.1 });

@@ -151,7 +151,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | `StereoPannerNode.pan` | Yes | react-native-audio-api | — | Yes | Opt-in: `Panner` | — | Yes |
 | `ConstantSourceNode` constructor | Yes | react-native-audio-api, global | [globals.ts](src/globals.ts) (`ConstantSourceNode`) | Yes | No | — | Yes |
 | `ConstantSourceNode.offset` | Yes | react-native-audio-api | — | Yes | Yes: `Signal` | — | Yes |
-| `DelayNode` constructor / `delayTime` | Yes | react-native-audio-api; the global is an explicit-stereo subclass. A feedback loop built from a DelayNode graph cycle does NOT work (the library drops cycle edges): use `FeedbackDelayNode` | [globals.ts](src/globals.ts) (`DelayNode`) | No | Opt-in: `Delay` (through `createDelay()`) | — | Yes |
+| `DelayNode` constructor / `delayTime` | Yes | react-native-audio-api; the global is an explicit-stereo subclass. A feedback loop built from a DelayNode graph cycle does NOT work (the library drops cycle edges): use `FeedbackDelayNode`. Signals connected to `delayTime` are ignored on 1.0.1; `rn-web-audio-compat/tone` uses a C++ delay for Tone | [globals.ts](src/globals.ts) (`DelayNode`) | No | Opt-in: `Delay` (through `createDelay()`) | — | Yes |
 
 ## BiquadFilterNode and IIRFilterNode
 
@@ -242,7 +242,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Tone.js? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|---|
-| `AudioWorklet.addModule()` | Partial | rn-web-audio-compat: resolves without loading code; processors are registered from JS | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`; loads the processor source from a Blob URL | — | Yes |
+| `AudioWorklet.addModule()` | Partial | rn-web-audio-compat: resolves without loading code; processors are registered from JS | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) (`installWebAudioCompat`) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher`; `rn-web-audio-compat/tone` supplies native processors in place of its Blob URL | — | Yes |
 | `AudioWorkletNode` constructor (+ `processorOptions`) | Yes | rn-web-audio-compat: runs the registered processor as a JS worklet on the audio thread, or a registered native implementation (C++ kernel / built-in nodes) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher` | — | Yes |
 | `AudioWorkletNode.parameters` | Yes | rn-web-audio-compat: LiveAudioParam map (value + automation; k-rate, not sample-accurate) | [liveAudioParam.ts](src/worklet/liveAudioParam.ts) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher` | — | Yes |
 | `AudioWorkletNode.port` / `postMessage()` | Partial | rn-web-audio-compat: JS -> processor only (a mailbox the processor reads each block) | [AudioWorkletNode.ts](src/worklet/AudioWorkletNode.ts) | Yes | Opt-in: `ToneAudioWorklet`: `FeedbackCombFilter` (`Freeverb`, `JCReverb`, `PluckSynth`), `BitCrusher` (a `dispose` message) | — | Yes |
@@ -264,7 +264,7 @@ Counted per row (rows that group several members count once). Partial counts as 
 
 The biggest gaps (media streams, latency reporting, output device selection, the deprecated ScriptProcessorNode) are ones Strudel never touches. Strudel-specific pieces (superdough's worklet processors, reverb, delay) are covered by [rn-strudel](https://github.com/wwrinkle/rn-strudel)'s own COVERAGE.md.
 
-Tone.js reaches further than Strudel. Its gaps here: its AudioWorklet classes (`FeedbackCombFilter`, so `Freeverb`, `JCReverb` and `PluckSynth`, and `BitCrusher`), which load their processors from a Blob URL that `addModule()` can't load; `Panner3D`'s `'HRTF'` model, which renders as `'equalpower'`; `Compressor.reduction`; and the opt-in `UserMedia` and `Recorder`. Tone also needs its context and clock set up for React Native (it makes a context as it loads, and its timer clock stops with the screen locked): `rn-web-audio-compat/tone` does both (README.md, "Tone.js").
+Tone.js reaches further than Strudel. Its gaps here: `Panner3D`'s `'HRTF'` model, which renders as `'equalpower'`; `Compressor.reduction`; and the opt-in `UserMedia` and `Recorder`. Tone also needs its context and clock set up for React Native (it makes a context as it loads, and its timer clock stops with the screen locked): `rn-web-audio-compat/tone` does both, and runs Tone's AudioWorklet classes (`Freeverb`, `JCReverb`, `PluckSynth`, `BitCrusher`) and feedback delays on C++ nodes (README.md, "Tone.js").
 
 ## Beyond the standard API
 

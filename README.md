@@ -27,7 +27,8 @@ runs [Tone.js](https://tonejs.github.io) too (see [Tone.js](#tonejs) below). Not
 ## Status
 
 - **Android:** 122/122 conformance tests pass on a Pixel 10 with react-native-audio-api 1.0.1, the same as in Chrome.
-- **iOS:** 109/109 on an iPhone 13 (iOS 26.5) with the earlier 0.13.6 version. The 1.0 version is not yet verified.
+- **iOS:** 122/122 on an iPhone 13 (iOS 26.5) with react-native-audio-api 1.0.1. The Tone.js worklet effects, native
+  delay and feedback, `FdnReverb`, `TimeStretchPlayer` and `QueuePlayer` have so far run only on Android and in Chrome.
 - **Known upstream issue:** on 1.0.1, audio-thread events stop after a few contexts
   ([#1487](https://github.com/software-mansion/react-native-audio-api/issues/1487), fix in review).
 - **Distribution:** not published to npm. Install from GitHub.
@@ -118,8 +119,18 @@ transport keeps time with the screen locked, and shows the Android playback noti
 to skip it). Its web build is stock Tone.js with the same exports, so shared code needs no platform checks. Install
 `tone` (15.1.22 or later 15.x) yourself.
 
-Tone's AudioWorklet classes (`Freeverb`, `JCReverb`, `PluckSynth`, `BitCrusher`) don't work yet, and `Panner3D`'s
-`'HRTF'` renders as equal-power. Details are in [docs/FINDINGS.md](docs/FINDINGS.md#tonejs).
+Tone itself stays unpatched. On React Native this entry point runs Tone's AudioWorklet classes (`Freeverb`, `JCReverb`,
+`PluckSynth`, `BitCrusher`) on C++ kernels, and gives `FeedbackDelay`, `PingPongDelay`, `Chorus` and `PitchShift` a
+native delay and working feedback. `Panner3D`'s `'HRTF'` still renders as equal-power. Details are in
+[docs/FINDINGS.md](docs/FINDINGS.md#tonejs).
+
+It also exports three Tone-style classes, with web versions behind the same API:
+
+| Export | What it is |
+| --- | --- |
+| `FdnReverb` | A Tone effect on the C++ FDN reverb, much cheaper than `Tone.Reverb`. On web it is a lowpass into `Tone.Reverb`, and `damping` has no audible effect |
+| `TimeStretchPlayer` | A `Player` whose `playbackRate` changes speed without changing pitch. On web it extends `GrainPlayer` |
+| `QueuePlayer` | Gapless playback of buffers loaded on demand through `load(index)` |
 
 ### Also included
 

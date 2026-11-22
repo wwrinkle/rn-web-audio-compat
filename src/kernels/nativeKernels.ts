@@ -6,11 +6,14 @@
 // A kernel is described to JS by a KernelEntry: its numeric id (must match the id the C++ side registers), whether it is
 // an effect or a source, and the JS processor module it mirrors (the spec, whose parameterDescriptors define the param
 // layout, and the fallback when native processors are disabled). Built-ins: 'compressor', 'feedback-delay',
-// 'fdn-reverb' (ids 1-3). Other libraries register theirs (ids 100-255) with registerKernel().
+// 'fdn-reverb', 'bit-crusher', 'feedback-comb-filter', 'modulated-delay' (ids 1-6). Other libraries register theirs (ids 100-255) with registerKernel().
 
 import type { AudioNode, BaseAudioContext } from 'react-native-audio-api';
 import { compressorProcessor } from '../processors/compressorProcessor';
+import { bitCrusherProcessor } from '../processors/bitCrusherProcessor';
 import { fdnReverbProcessor } from '../processors/fdnReverbProcessor';
+import { feedbackCombFilterProcessor } from '../processors/feedbackCombFilterProcessor';
+import { modulatedDelayProcessor } from '../processors/modulatedDelayProcessor';
 import { feedbackDelayProcessor } from '../processors/feedbackDelayProcessor';
 import type { WorkletProcessorModule } from '../worklet/types';
 import { KernelParam } from './kernelParam';
@@ -45,6 +48,18 @@ const KERNELS = new Map<string, KernelEntry>([
     },
   ],
   ['fdn-reverb', { id: 3, kind: 'effect', module: fdnReverbProcessor, tailSeconds: () => 30 }],
+  ['bit-crusher', { id: 4, kind: 'effect', module: bitCrusherProcessor }],
+  ['feedback-comb-filter', { id: 5, kind: 'effect', module: feedbackCombFilterProcessor, tailSeconds: () => 30 }],
+  [
+    'modulated-delay',
+    {
+      id: 6,
+      kind: 'effect',
+      module: modulatedDelayProcessor,
+      extraParams: (o) => [num(o?.maxDelayTime, 1)],
+      tailSeconds: (o) => num(o?.maxDelayTime, 1),
+    },
+  ],
 ]);
 
 export function registerKernel(name: string, entry: KernelEntry): void {

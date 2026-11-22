@@ -4,6 +4,10 @@
 import { getContext, start } from 'tone';
 import type { Context } from 'tone';
 
+export { FdnReverb, type FdnReverbOptions } from './FdnReverb.web';
+export { QueuePlayer, type QueuePlayerOptions, type QueueChunkLoader } from './QueuePlayer.web';
+export { TimeStretchPlayer } from './TimeStretchPlayer.web';
+
 export interface StartToneOptions {
   backgroundPlayback?: unknown; // React Native only
   onError?: (error: unknown) => void; // React Native only: in a browser, Tone's own clock reports errors

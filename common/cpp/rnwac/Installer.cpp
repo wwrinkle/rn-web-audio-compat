@@ -74,6 +74,32 @@ void install(jsi::Runtime &runtime) {
     return jsi::Object::createFromHostObject(rt, host);
   });
 
+  setFunction(runtime, "__rnwacCreateKernelControlNode", 3, [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) {
+    if (count < 3 || !args[1].isObject() || !args[2].isNumber()) {
+      throw jsi::JSError(rt, std::string(kTag) + "__rnwacCreateKernelControlNode(context, kernelNode, paramIndex)");
+    }
+    auto context = contextOrThrow(rt, args[0]);
+    auto kernel = args[1].asObject(rt).getHostObject<KernelEffectNodeHostObject>(rt);
+    const int index = static_cast<int>(args[2].asNumber());
+    if (kernel == nullptr || index < 0 || index >= kMaxParams) {
+      throw jsi::JSError(rt, std::string(kTag) + "not a kernel effect node, or param index out of range");
+    }
+    auto host = std::make_shared<KernelControlNodeHostObject>(context, kernel->controls(), index);
+    return jsi::Object::createFromHostObject(rt, host);
+  });
+
+  setFunction(runtime, "__rnwacCreateFeedbackBridge", 1, [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) {
+    if (count < 1) {
+      throw jsi::JSError(rt, std::string(kTag) + "__rnwacCreateFeedbackBridge(context)");
+    }
+    auto context = contextOrThrow(rt, args[0]);
+    auto bus = std::make_shared<FeedbackBus>();
+    jsi::Object bridge(rt);
+    bridge.setProperty(rt, "send", jsi::Object::createFromHostObject(rt, std::make_shared<FeedbackSendNodeHostObject>(context, bus)));
+    bridge.setProperty(rt, "ret", jsi::Object::createFromHostObject(rt, std::make_shared<FeedbackReturnNodeHostObject>(context, bus)));
+    return bridge;
+  });
+
   setFunction(runtime, "__rnwacCreateKernelSourceNode", 3, [](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) {
     if (count < 2) {
       throw jsi::JSError(rt, std::string(kTag) + "__rnwacCreateKernelSourceNode(context, kernelId, params)");

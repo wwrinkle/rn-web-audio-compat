@@ -25,8 +25,34 @@ class KernelEffectNodeHostObject : public audioapi::AudioNodeHostObject {
   JSI_HOST_FUNCTION_DECL(setKernelParam);
   JSI_PROPERTY_GETTER_DECL(kernelId);
 
+  [[nodiscard]] const std::shared_ptr<KernelControls> &controls() const {
+    return kernelNode_->controls();
+  }
+
  private:
   KernelEffectNode *const kernelNode_;
+};
+
+class KernelControlNodeHostObject : public audioapi::AudioNodeHostObject {
+ public:
+  KernelControlNodeHostObject(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const std::shared_ptr<KernelControls> &controls,
+      int paramIndex);
+};
+
+class FeedbackSendNodeHostObject : public audioapi::AudioNodeHostObject {
+ public:
+  FeedbackSendNodeHostObject(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const std::shared_ptr<FeedbackBus> &bus);
+};
+
+class FeedbackReturnNodeHostObject : public audioapi::AudioScheduledSourceNodeHostObject {
+ public:
+  FeedbackReturnNodeHostObject(
+      const std::shared_ptr<audioapi::BaseAudioContext> &context,
+      const std::shared_ptr<FeedbackBus> &bus);
 };
 
 class KernelSourceNodeHostObject : public audioapi::AudioScheduledSourceNodeHostObject {
