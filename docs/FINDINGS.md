@@ -126,8 +126,8 @@ says `yes` on a new react-native-audio-api, the fix is upstream: drop `needsEven
 ## Tone.js
 
 [Tone.js](https://tonejs.github.io) 15.1.22 runs on this library (Pixel 10 and iPhone 13, react-native-audio-api 1.0.1: synths,
-`Sampler`, `Filter` with an `LFO`, `Compressor`, `PingPongDelay`, `Chorus`, `Panner3D`, `Reverb`, the transport, and
-exact timing for 90 s with the screen off). What it needed:
+`Sampler`, `Filter` with an `LFO`, `Compressor`, `PingPongDelay`, `Chorus`, `Panner3D`, `Reverb` and the transport. The
+Pixel kept exact timing for 90 s with the screen off, and the iPhone stayed within one event while locked). What it needed:
 
 - **One context, set before Tone loads.** Tone's index module makes a context as it evaluates
   (`export const Transport = getContext().transport`): a second native `AudioContext`, wrapped by
