@@ -169,7 +169,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 
 | Name | Covered? | How | Source | Strudel? | Tone.js? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|---|
-| `ConvolverNode.buffer` | Partial | react-native-audio-api. 1.0 redesigned the convolver: processing before a buffer is set no longer crashes (it did up to 0.13.6, which this library patched). Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | — | Yes | Opt-in: `Convolver`, `Reverb` (set after connecting) | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
+| `ConvolverNode.buffer` | Partial | react-native-audio-api. Without a buffer it outputs silence (this library's wrapper: 1.0 passes the input through). Cost grows with the impulse response length: for reverb, prefer `createFdnReverbNode` | — | Yes | Opt-in: `Convolver`, `Reverb` (set after connecting) | Done: `createFdnReverbNode` (C++ FDN reverb, cost independent of length; 41% vs 78% audio load for a 0.6 s reverb on a Pixel 10) | Yes |
 | `ConvolverNode.normalize` | Yes | react-native-audio-api; its normalization matches the Web Audio spec formula within about 1 dB | — | Yes | Opt-in: `Convolver` | — | Yes |
 
 ## WaveShaperNode
@@ -211,7 +211,7 @@ Every piece of the standard Web Audio API, with whether a React Native app gets 
 | Name | Covered? | How | Source | Strudel? | Tone.js? | Savings left? | Self-test |
 |---|---|---|---|---|---|---|---|
 | `PannerNode` constructor | Yes | react-native-audio-api. Global | — | No | Opt-in: `Panner3D` | — | Yes |
-| `PannerNode.panningModel` | Partial | react-native-audio-api; `'HRTF'` is accepted but renders as `'equalpower'` | — | No | Opt-in: `Panner3D` (default `'HRTF'`) | — | Yes |
+| `PannerNode.panningModel` | Partial | react-native-audio-api; only `'equalpower'`: assigning `'HRTF'` is ignored and it keeps reading back `'equalpower'` | — | No | Opt-in: `Panner3D` (default `'HRTF'`) | — | Yes |
 | `PannerNode.distanceModel` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
 | `PannerNode.refDistance` / `maxDistance` / `rolloffFactor` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |
 | `PannerNode.coneInnerAngle` / `coneOuterAngle` / `coneOuterGain` | Yes | react-native-audio-api | — | No | Opt-in: `Panner3D` | — | Yes |

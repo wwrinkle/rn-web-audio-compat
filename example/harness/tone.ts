@@ -4,8 +4,9 @@
 //  2. Many reverbs: Tone.Reverb renders its impulse response in a new OfflineAudioContext every time, and on
 //     react-native-audio-api 1.0.1 every context permanently takes a block of the event queue the audio clock runs on
 //     (docs/FINDINGS.md). After each reverb: does the transport still advance?
-//  3. Timing: a STATUS line every 5 s comparing transport events with the wall clock, driven by Tone's own context
-//     (and so by the audio clock), for the screen-lock test.
+//  3. Sequencing: Sequence, Part, Loop and Pattern (order, sample-clock times, stop/restart, pause, tempo, audible output).
+//  4. Timing: a STATUS line every 5 s comparing transport and sequencer events with the wall clock, driven by Tone's own
+//     context (and so by the audio clock), for the screen-lock test.
 import 'rn-web-audio-compat/tone'; // before 'tone'
 import * as Tone from 'tone';
 import { getToneSetup, startTone } from 'rn-web-audio-compat/tone';
@@ -28,6 +29,121 @@ async function eventRate(ms = 2000): Promise<number> {
   const before = events;
   await sleep(ms);
   return ((events - before) * 1000) / ms;
+}
+
+// Largest distance between callback times (relative to the first) and the expected offsets.
+function timingError(times: number[], offsets: number[]) {
+  check(times.length >= offsets.length, `${offsets.length} events, got ${times.length}`);
+  return Math.max(...offsets.map((offset, i) => Math.abs(times[i] - times[0] - offset)));
+}
+const TIMING_TOLERANCE = 0.002; // seconds
+
+async function sequencing(fx: Tone.ToneAudioNode) {
+  const transport = Tone.getTransport();
+  await step('Sequence: nested subdivisions, rests, loop', async () => {
+    const times: number[] = [];
+    const notes: string[] = [];
+    const seq = new Tone.Sequence<string | null>(
+      (time, note) => {
+        times.push(time);
+        notes.push(String(note));
+      },
+      ['C4', ['E4', 'G4'], null, 'B4'],
+      '4n'
+    ).start('+0.1');
+    await sleep(4400);
+    seq.dispose();
+    check(notes.slice(0, 8).join() === 'C4,E4,G4,B4,C4,E4,G4,B4', `order ${notes.slice(0, 8).join()}`);
+    const error = timingError(times, [0, 0.5, 0.75, 1.5, 2, 2.5, 2.75, 3.5]);
+    check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
+    return error;
+  });
+  await step('Part: bars:beats:sixteenths, loop', async () => {
+    const times: number[] = [];
+    const notes: string[] = [];
+    const part = new Tone.Part<[string, string]>(
+      (time, note) => {
+        times.push(time);
+        notes.push(String(note));
+      },
+      [['0:0:0', 'C4'], ['0:1:0', 'E4'], ['0:2:2', 'G4']]
+    );
+    part.loop = true;
+    part.loopEnd = '1m';
+    part.start('+0.1');
+    await sleep(4400);
+    part.dispose();
+    check(notes.slice(0, 6).join() === 'C4,E4,G4,C4,E4,G4', `order ${notes.slice(0, 6).join()}`);
+    const error = timingError(times, [0, 0.5, 1.25, 2, 2.5, 3.25]);
+    check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
+  });
+  await step('Pattern: upDown', async () => {
+    const notes: string[] = [];
+    const pattern = new Tone.Pattern<string>((_time, note) => notes.push(String(note)), ['a', 'b', 'c'], 'upDown');
+    pattern.interval = '8n';
+    pattern.start('+0.1');
+    await sleep(1700);
+    pattern.dispose();
+    check(notes.slice(0, 5).join() === 'a,b,c,b,a', `order ${notes.slice(0, 5).join()}`);
+  });
+  await step('Loop: stop silences it, start resumes it', async () => {
+    let count = 0;
+    const loop = new Tone.Loop(() => count++, '8n').start('+0.1');
+    await sleep(1200);
+    const running = count;
+    loop.stop();
+    await sleep(300); // events already inside the lookahead window
+    const stopped = count;
+    await sleep(1000);
+    check(running >= 3 && count === stopped, `ran ${running}, ${count - stopped} after stop`);
+    loop.start('+0.1');
+    await sleep(1000);
+    check(count > stopped, 'resumed');
+    loop.dispose();
+    const disposed = count;
+    await sleep(600);
+    check(count <= disposed + 1, `${count - disposed} events after dispose`);
+  });
+  await step('Transport: tempo change respaces a Loop', async () => {
+    const times: number[] = [];
+    const loop = new Tone.Loop((time) => times.push(time), '8n').start('+0.1');
+    transport.bpm.value = BPM / 2;
+    await sleep(2600);
+    loop.dispose();
+    transport.bpm.value = BPM;
+    const error = timingError(times, [0, 0.5, 1, 1.5]);
+    check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
+  });
+  await step('Transport: pause and resume', async () => {
+    let count = 0;
+    const loop = new Tone.Loop(() => count++, '8n').start('+0.1');
+    await sleep(800);
+    transport.pause();
+    await sleep(300);
+    const paused = count;
+    await sleep(800);
+    check(count === paused, `${count - paused} events while paused`);
+    transport.start();
+    await sleep(800);
+    check(count > paused, 'resumed');
+    loop.dispose();
+  });
+  await step('Sequence drives audible output (Meter)', async () => {
+    const meter = new Tone.Meter({ normalRange: true, smoothing: 0 });
+    const synth = new Tone.Synth().connect(fx);
+    synth.connect(meter);
+    const seq = new Tone.Sequence((time, note) => synth.triggerAttackRelease(note as string, '16n', time, 0.5), ['A4', 'E5'], '8n').start('+0.1');
+    let peak = 0;
+    for (let i = 0; i < 30; i++) {
+      await sleep(50);
+      peak = Math.max(peak, meter.getValue() as number);
+    }
+    seq.dispose();
+    synth.dispose();
+    meter.dispose();
+    check(peak > 0.01, `level ${peak.toFixed(4)}`);
+    return peak;
+  });
 }
 
 async function run() {
@@ -112,19 +228,31 @@ async function run() {
     return rate;
   });
 
+  await sequencing(fx);
+
   // 2. Many reverbs, each its own OfflineAudioContext.
   let reverbIn: Tone.ToneAudioNode = fx;
+  let stalled = false;
+  let lastBeat = Date.now();
+  let maxJsGap = 0;
+  const heartbeat = setInterval(() => {
+    const now = Date.now();
+    maxJsGap = Math.max(maxJsGap, now - lastBeat);
+    lastBeat = now;
+  }, 20);
   for (let i = 1; i <= REVERBS; i++) {
     const t0 = Date.now();
+    maxJsGap = 0;
     const r = await step(`Reverb #${i}: impulse response rendered offline`, async () => {
       const reverb = new Tone.Reverb({ decay: 1 + i * 0.25, wet: 0.3 });
       await withTimeout(reverb.ready, 8000, 'reverb.ready');
       return reverb;
     });
     const rate = await eventRate(1500);
-    log(`after reverb #${i} (${r ? `ready in ${Date.now() - t0} ms` : 'failed'}): transport ${rate.toFixed(1)} events/s`);
+    log(`after reverb #${i} (${r ? `ready in ${Date.now() - t0} ms` : 'failed'}): transport ${rate.toFixed(1)} events/s, longest JS stall ${maxJsGap} ms`);
     if (Math.abs(rate - EVENTS_PER_SECOND) > 1) {
       log(`FAIL transport stalled after reverb #${i} (${rate.toFixed(1)} events/s)`);
+      stalled = true;
       break;
     }
     if (r) {
@@ -136,9 +264,19 @@ async function run() {
       sampler?.disconnect().connect(r);
     }
   }
-  log(`PASS reverbs done: ${REVERBS} offline contexts`);
+  clearInterval(heartbeat);
+  if (!stalled) log(`PASS reverbs done: ${REVERBS} offline contexts`);
 
-  // 3. Timing, driven by Tone's context (so by the audio clock): keeps going with the screen locked.
+  // 4. Timing, driven by Tone's context (so by the audio clock): keeps going with the screen locked.
+  let sequenceEvents = 0;
+  let partEvents = 0;
+  let loopEvents = 0;
+  new Tone.Sequence(() => sequenceEvents++, [0, 1, 2, 3], '8n').start(0); // 4/s
+  const livePart = new Tone.Part(() => partEvents++, [['0:0:0', 0], ['0:2:0', 1]]); // 1/s
+  livePart.loop = true;
+  livePart.loopEnd = '1m';
+  livePart.start(0);
+  new Tone.Loop(() => loopEvents++, '4n').start(0); // 2/s
   const tWall = Date.now();
   const e0 = events;
   log('timing: STATUS every 5 s');
@@ -147,6 +285,8 @@ async function run() {
     const expected = Math.round(elapsed * EVENTS_PER_SECOND);
     log(
       `STATUS t=${elapsed.toFixed(1)}s events=${events - e0} expected~${expected} ` +
+        `seq=${sequenceEvents}/${Math.round(elapsed * 4)} part=${partEvents}/${Math.round(elapsed)} ` +
+        `loop=${loopEvents}/${Math.round(elapsed * 2)} ` +
         `ctxTime=${context.currentTime.toFixed(2)} transport=${transport.seconds.toFixed(2)} state=${transport.state}`
     );
   }, 5);

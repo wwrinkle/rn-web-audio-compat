@@ -1547,7 +1547,7 @@ const convolver: CoverageRow[] = [
     group: CONV,
     name: '`ConvolverNode.buffer`',
     covered: 'partial',
-    how: `${RNAA}. 1.0 redesigned the convolver: processing before a buffer is set no longer crashes (it did up to 0.13.6, which this library patched). Cost grows with the impulse response length: for reverb, prefer \`createFdnReverbNode\``,
+    how: `${RNAA}. Without a buffer it outputs silence (this library's wrapper: 1.0 passes the input through). Cost grows with the impulse response length: for reverb, prefer \`createFdnReverbNode\``,
     strudel: 'yes',
     tone: 'opt-in',
     toneVia: '`Convolver`, `Reverb` (set after connecting)',
@@ -1860,18 +1860,17 @@ const panner: CoverageRow[] = [
     group: PAN,
     name: '`PannerNode.panningModel`',
     covered: 'partial',
-    how: `${RNAA}; \`'HRTF'\` is accepted but renders as \`'equalpower'\``,
+    how: `${RNAA}; only \`'equalpower'\`: assigning \`'HRTF'\` is ignored and it keeps reading back \`'equalpower'\``,
     ...panTone,
     toneVia: "`Panner3D` (default `'HRTF'`)",
     test: async (t) => {
       const p = t.ctx.createPanner();
-      p.panningModel = 'HRTF';
-      t.expect(p.panningModel === 'HRTF', `read back ${p.panningModel}`);
+      p.panningModel = 'HRTF'; // must not throw; a browser applies it, react-native-audio-api 1.0 ignores it
       p.panningModel = 'equalpower';
       t.expect(p.panningModel === 'equalpower', `read back ${p.panningModel}`);
       const [l, r] = await renderPanner((o) => equalpower(o, { positionX: -1 }));
       t.expect(near(l, 1, 0.02) && near(r, 0, 0.02), `L ${fmt(l)} R ${fmt(r)}`);
-      return `reads back; equalpower hard left (L ${fmt(l)} R ${fmt(r)})`;
+      return `equalpower reads back; hard left (L ${fmt(l)} R ${fmt(r)})`;
     },
   }),
   row({

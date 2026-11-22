@@ -26,10 +26,10 @@ runs [Tone.js](https://tonejs.github.io) too (see [Tone.js](#tonejs) below). Not
 
 ## Status
 
-- **react-native-audio-api 1.0 port (branch `rnaa-1.0`): not yet verified on a device.** The figures below are for the
-  0.13.6 version on `main`.
-- **Android:** 109/109 conformance tests pass on a Pixel 10 and the emulator, the same as in Chrome.
-- **iOS:** 109/109 on an iPhone 13 (iOS 26.5), built by this repo's `iOS example build` workflow.
+- **Android:** 122/122 conformance tests pass on a Pixel 10 with react-native-audio-api 1.0.1, the same as in Chrome.
+- **iOS:** 109/109 on an iPhone 13 (iOS 26.5) with the earlier 0.13.6 version. The 1.0 version is not yet verified.
+- **Known upstream issue:** on 1.0.1, audio-thread events stop after a few contexts
+  ([#1487](https://github.com/software-mansion/react-native-audio-api/issues/1487), fix in review).
 - **Distribution:** not published to npm. Install from GitHub.
 - **react-native-audio-api version:** 1.0.1 or later 1.x. Nothing in it is patched: this library's native module uses
   its stable C++ extension API.

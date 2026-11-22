@@ -39,7 +39,6 @@ import {
   ChannelMergerNode,
   ChannelSplitterNode,
   ConstantSourceNode,
-  ConvolverNode,
   DelayNode,
   GainNode,
   OscillatorNode,
@@ -51,6 +50,7 @@ import {
 import { DynamicsCompressorNode } from './nodes/DynamicsCompressorNode';
 import { LiveAudioParam } from './worklet/liveAudioParam';
 import { KernelParam } from './kernels/kernelParam';
+import { CompatConvolverNode } from './nodes/CompatConvolverNode';
 
 function setGlobalIfMissing(name: string, value: unknown): void {
   if (typeof (globalThis as Record<string, unknown>)[name] === 'undefined') {
@@ -116,7 +116,7 @@ setGlobalIfMissing('PeriodicWave', PeriodicWave);
 setGlobalIfMissing('AudioBufferSourceNode', AudioBufferSourceNode);
 setGlobalIfMissing('AnalyserNode', AnalyserNode);
 setGlobalIfMissing('ConstantSourceNode', ConstantSourceNode);
-setGlobalIfMissing('ConvolverNode', ConvolverNode);
+setGlobalIfMissing('ConvolverNode', CompatConvolverNode);
 setGlobalIfMissing('IIRFilterNode', IIRFilterNode);
 setGlobalIfMissing('OscillatorNode', OscillatorNode);
 setGlobalIfMissing('PannerNode', PannerNode);
@@ -129,6 +129,10 @@ setGlobalIfMissing('DelayNode', explicitStereo(DelayNode));
 setGlobalIfMissing('ChannelMergerNode', ChannelMergerNode);
 setGlobalIfMissing('ChannelSplitterNode', ChannelSplitterNode);
 setGlobalIfMissing('DynamicsCompressorNode', DynamicsCompressorNode);
+
+BaseAudioContext.prototype.createConvolver = function (this: BaseAudioContext) {
+  return new CompatConvolverNode(this);
+};
 
 // Factory methods react-native-audio-api lacks, on every context (offline ones too).
 function defineIfMissing(target: object, name: string, value: unknown): void {

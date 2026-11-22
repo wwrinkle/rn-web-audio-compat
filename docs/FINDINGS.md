@@ -133,8 +133,10 @@ exact timing for 90 s with the screen off). What it needed:
   `BitCrusher`). They load their processor source from a Blob URL (`URL.createObjectURL` doesn't exist here, and
   `addModule()` loads no code anyway). Porting their processors with `registerWorkletProcessor` /
   `registerNativeProcessor` under Tone's processor names would make them work.
-- **`Panner3D`'s default `'HRTF'`** is accepted but renders as `'equalpower'` (react-native-audio-api ignores
-  `panningModel`).
+- **`Panner3D`'s default `'HRTF'`** is ignored: react-native-audio-api 1.0.1 only has `'equalpower'`, and `panningModel`
+  keeps reading back `'equalpower'`.
+- **Sequencing works:** `Sequence`, `Part`, `Loop` and `Pattern` pass on the Pixel 10 (order, timing within 2 ms of the
+  expected offsets, stop/restart, transport pause, tempo change, audible output). `example/harness/tone.ts` checks them.
 
 ## Browser globals and import order
 
@@ -166,7 +168,8 @@ status on 1.0.1 per item:
   while the audio thread runs one and `gc()` every 10 cycles; and 400 rounds of releasing LFO-modulated filters
   (modulator first, filter first, both, stop without disconnect) next to filters that stay modulated. The example
   app's `EXPO_PUBLIC_AUTORUN=stress` build runs them (`example/harness/stress.ts`).
-- `ConvolverNode` before a buffer is set: fixed upstream (the convolver was redesigned); the conformance rows pass.
+- `ConvolverNode` before a buffer is set: the crash is fixed upstream, but 1.0.1 passes the input through instead of
+  outputting silence. `CompatConvolverNode` holds a silent impulse response until a buffer is set.
 
 Up to 0.13.6:
 
@@ -186,8 +189,8 @@ Up to 0.13.6:
   Processing before a buffer is set also crashed: `performConvolution()` waited on the thread pool, which is only
   created with the buffer (SIGSEGV in `ThreadPool::wait`, found running Tone.js's `Reverb`, which connects its
   convolver first and sets the buffer once the impulse response renders). The patch makes it output silence until then.
-  Fixed upstream in react-native-audio-api 1.0 (the convolver was redesigned; it returns early without a thread pool);
-  the `ConvolverNode.buffer` row tests this case.
+  The crash is fixed upstream in react-native-audio-api 1.0, but its early return leaves the input in the output, so
+  this library's `CompatConvolverNode` keeps the output silent. The `ConvolverNode.buffer` row tests this case.
 
 ## API bugs fixed in the patch (up to 0.13.6)
 
