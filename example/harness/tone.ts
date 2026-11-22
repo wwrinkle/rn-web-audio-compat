@@ -15,6 +15,7 @@ import { describe, log, setLogTag, sleep, step, check } from './log';
 const BPM = 120;
 const EVENTS_PER_SECOND = (BPM / 60) * 2; // scheduleRepeat at '8n'
 const REVERBS = 12;
+const PAUSE_ROUNDS = 20;
 
 const withTimeout = <T>(promise: Promise<T>, ms: number, what: string) =>
   Promise.race([
@@ -114,19 +115,43 @@ async function sequencing(fx: Tone.ToneAudioNode) {
     const error = timingError(times, [0, 0.5, 1, 1.5]);
     check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
   });
-  await step('Transport: pause and resume', async () => {
-    let count = 0;
-    const loop = new Tone.Loop(() => count++, '8n').start('+0.1');
-    await sleep(800);
-    transport.pause();
-    await sleep(300);
-    const paused = count;
-    await sleep(800);
-    check(count === paused, `${count - paused} events while paused`);
-    transport.start();
-    await sleep(800);
-    check(count > paused, 'resumed');
-    loop.dispose();
+  await step(`Transport: pause and resume x${PAUSE_ROUNDS}`, async () => {
+    let failures = 0;
+    for (let round = 1; round <= PAUSE_ROUNDS; round++) {
+      let count = 0;
+      let firstAt = 0;
+      const loop = new Tone.Loop(() => {
+        count++;
+        firstAt ||= Date.now();
+      }, '8n').start('+0.1');
+      await sleep(800);
+      const before = count;
+      const pausedAtSeconds = transport.seconds;
+      transport.pause();
+      await sleep(300);
+      const paused = count;
+      await sleep(500);
+      const whilePaused = count - paused;
+      const mainBefore = events;
+      firstAt = 0;
+      const resumedAt = Date.now();
+      transport.start();
+      await sleep(800);
+      const after = count - paused;
+      // A silent loop: does it come back late, or never?
+      if (after === 0) await sleep(2500);
+      const ok = whilePaused === 0 && after > 0;
+      if (!ok) failures++;
+      log(
+        `pause round ${round}: ${ok ? 'ok' : 'BAD'} before=${before} whilePaused=${whilePaused} after=${after} ` +
+          `lateTotal=${count - paused} firstMs=${firstAt ? firstAt - resumedAt : 'none'} main=${events - mainBefore} ` +
+          `pausedAt=${pausedAtSeconds.toFixed(3)} now=${transport.seconds.toFixed(3)} ` +
+          `transport=${transport.state} loop=${loop.state} ctx=${Tone.getContext().currentTime.toFixed(3)}`
+      );
+      loop.dispose();
+      await sleep(150);
+    }
+    check(failures === 0, `${failures}/${PAUSE_ROUNDS} rounds failed`);
   });
   await step('Sequence drives audible output (Meter)', async () => {
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0 });
