@@ -105,16 +105,6 @@ async function sequencing(fx: Tone.ToneAudioNode) {
     await sleep(600);
     check(count <= disposed + 1, `${count - disposed} events after dispose`);
   });
-  await step('Transport: tempo change respaces a Loop', async () => {
-    const times: number[] = [];
-    const loop = new Tone.Loop((time) => times.push(time), '8n').start('+0.1');
-    transport.bpm.value = BPM / 2;
-    await sleep(2600);
-    loop.dispose();
-    transport.bpm.value = BPM;
-    const error = timingError(times, [0, 0.5, 1, 1.5]);
-    check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
-  });
   await step(`Transport: pause and resume x${PAUSE_ROUNDS}`, async () => {
     let failures = 0;
     for (let round = 1; round <= PAUSE_ROUNDS; round++) {
@@ -152,6 +142,18 @@ async function sequencing(fx: Tone.ToneAudioNode) {
       await sleep(150);
     }
     check(failures === 0, `${failures}/${PAUSE_ROUNDS} rounds failed`);
+  });
+  // Last of the transport checks: after a tempo change, transport.seconds and ticks disagree, so a later '+0.1' start
+  // lands late (Tone.js behaves the same in a browser).
+  await step('Transport: tempo change respaces a Loop', async () => {
+    const times: number[] = [];
+    const loop = new Tone.Loop((time) => times.push(time), '8n').start('+0.1');
+    transport.bpm.value = BPM / 2;
+    await sleep(2600);
+    loop.dispose();
+    transport.bpm.value = BPM;
+    const error = timingError(times, [0, 0.5, 1, 1.5]);
+    check(error < TIMING_TOLERANCE, `timing error ${(error * 1000).toFixed(2)} ms`);
   });
   await step('Sequence drives audible output (Meter)', async () => {
     const meter = new Tone.Meter({ normalRange: true, smoothing: 0 });
