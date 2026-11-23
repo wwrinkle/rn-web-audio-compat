@@ -129,7 +129,7 @@ It also exports three Tone-style classes, with web versions behind the same API:
 
 | Export | What it is |
 | --- | --- |
-| `FdnReverb` | A Tone effect on the C++ FDN reverb, much cheaper than `Tone.Reverb`. On web it is a lowpass into `Tone.Reverb`, and `damping` has no audible effect |
+| `FdnReverb` | A Tone effect on the C++ FDN reverb, much cheaper than `Tone.Reverb`. On web the same algorithm runs as an AudioWorklet (from its TypeScript spec), and joins the signal once `ready` resolves |
 | `TimeStretchPlayer` | A `Player` whose `playbackRate` changes speed without changing pitch. On web it extends `GrainPlayer` |
 | `QueuePlayer` | Gapless playback of buffers loaded on demand through `load(index)` |
 
